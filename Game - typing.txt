@@ -1,0 +1,36 @@
+Build a typing-practice game using Phaser 3 (via CDN) + JavaScript.
+
+GAME MECHANICS:
+- Falling words: words drop from top at speed X pixels/sec
+- Player types word to destroy it before it hits ground
+- HP system: word reaching ground costs HP = word length (e.g., "cat" = 3 HP)
+- Game over when HP = 0
+
+DIFFICULTY LEVELS (3 presets):
+- Easy: 50px/sec fall speed, new word every 3 sec, words 3-5 letters
+- Medium: 80px/sec, new word every 2 sec, words 4-7 letters  
+- Hard: 120px/sec, new word every 1.5 sec, words 5-10 letters
+- Checkbox "Kid" - which will decrease fall speed and new word to half
+
+UX:
+- Start menu with difficulty select
+- Game screen: display current HP, score, falling word list
+- Game over screen with score, restart button
+
+CONSTRAINTS:
+- No external assets (CSS shapes + Phaser text only)
+- Single HTML file or separate index.html + game.js (your choice, recommend separate)
+- Phaser from CDN (no npm install needed)
+- Use sample English word list (100-200 common words). Store in text file so i can edit if needed. Format would be Dif_Level | word.  Example:   
+L1 | dog
+L1 | cat
+L3 | helicopter
+- Kid-friendly (large text, clear colors)
+
+DELIVERABLE:
+- Fully playable game ready to open in browser
+- All three difficulty levels working
+- Backspace support for corrections
+- Typo will cause changing background color to red for a very short moment (like 0.1s)
+
+If you need any further clarification, please ask me now, I will be available for the next 10mins

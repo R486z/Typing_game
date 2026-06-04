@@ -1,0 +1,1395 @@
+'use strict';
+
+/* ── Constants ─────────────────────────────────────────────────────────────── */
+const W            = 800;
+const H            = 600;
+const GROUND_Y     = 510;
+const MAX_HP       = 20;
+const LEVEL_UP_SEC = 30;
+
+// 10 difficulty presets  (index = player-chosen difficulty 0..9)
+const LEVEL_CONFIG = [
+  { speed:  32, interval: 5000, pool: ['L1']             }, // 0 – Calm warm-up
+  { speed:  45, interval: 4300, pool: ['L1']             }, // 1 – Relaxed
+  { speed:  58, interval: 3650, pool: ['L1','L2']        }, // 2 – Comfortable
+  { speed:  72, interval: 3050, pool: ['L1','L2']        }, // 3 – Getting tricky
+  { speed:  87, interval: 2550, pool: ['L1','L2']        }, // 4 – Challenging
+  { speed: 103, interval: 2150, pool: ['L1','L2','L3']   }, // 5 – Intense
+  { speed: 120, interval: 1800, pool: ['L1','L2','L3']   }, // 6 – Expert
+  { speed: 140, interval: 1500, pool: ['L2','L3']        }, // 7 – Brutal
+  { speed: 162, interval: 1220, pool: ['L3']             }, // 8 – Extreme
+  { speed: 188, interval:  980, pool: ['L3']             }, // 9 – Maximum difficulty
+];
+
+const LEVEL_COLORS = [
+  '#44ff88','#66ff55','#aaff22','#ddee00','#ffcc00',
+  '#ffaa00','#ff7700','#ff4400','#ff2200','#ff0000',
+];
+const DIFF_LABELS = [
+  'Calm warm-up','Relaxed','Comfortable','Getting tricky','Challenging',
+  'Intense','Expert  (≈ old Hard)','Brutal','Extreme','Maximum difficulty 💀',
+];
+
+/* ── Word pool ─────────────────────────────────────────────────────────────── */
+let wordPool = [];
+
+const FALLBACK = `
+L1|dog
+L1|cat
+L1|run
+L1|jump
+L1|fish
+L1|bird
+L1|tree
+L1|home
+L1|ball
+L1|fast
+L1|slow
+L1|blue
+L1|good
+L1|play
+L1|star
+L1|moon
+L1|rain
+L1|food
+L1|hand
+L1|face
+L1|door
+L1|road
+L1|love
+L1|like
+L1|make
+L1|walk
+L1|talk
+L1|time
+L1|work
+L1|word
+L1|come
+L1|look
+L1|feel
+L1|help
+L1|keep
+L1|know
+L1|need
+L1|open
+L1|part
+L1|plan
+L1|real
+L1|rest
+L1|safe
+L1|save
+L1|send
+L1|show
+L1|stay
+L1|stop
+L1|sure
+L1|tall
+L1|tell
+L1|true
+L1|turn
+L1|wait
+L1|warm
+L1|wide
+L1|wild
+L1|will
+L1|wish
+L1|wood
+L1|year
+L1|zero
+L1|gift
+L1|grow
+L1|hope
+L1|kind
+L1|land
+L1|life
+L1|luck
+L1|mark
+L1|mind
+L1|miss
+L1|move
+L1|name
+L1|nice
+L1|note
+L1|once
+L1|path
+L1|pull
+L1|push
+L1|rock
+L1|role
+L1|rush
+L1|salt
+L1|same
+L1|seed
+L1|side
+L1|sign
+L1|skin
+L1|skip
+L1|slip
+L1|snow
+L1|soft
+L1|song
+L1|sort
+L1|step
+L1|swim
+L1|task
+L1|team
+L1|test
+L1|text
+L1|tide
+L1|tiny
+L1|town
+L1|trip
+L1|twin
+L1|unit
+L1|view
+L1|wave
+L1|weak
+L1|wolf
+L2|apple
+L2|house
+L2|water
+L2|green
+L2|small
+L2|large
+L2|other
+L2|about
+L2|might
+L2|place
+L2|world
+L2|think
+L2|going
+L2|where
+L2|never
+L2|great
+L2|still
+L2|every
+L2|after
+L2|again
+L2|bring
+L2|could
+L2|light
+L2|night
+L2|right
+L2|write
+L2|below
+L2|above
+L2|wrong
+L2|clear
+L2|start
+L2|sound
+L2|study
+L2|learn
+L2|speak
+L2|happy
+L2|angry
+L2|funny
+L2|sport
+L2|music
+L2|plant
+L2|earth
+L2|space
+L2|speed
+L2|power
+L2|build
+L2|break
+L2|carry
+L2|catch
+L2|climb
+L2|cloud
+L2|cover
+L2|dance
+L2|eagle
+L2|early
+L2|float
+L2|focus
+L2|force
+L2|fresh
+L2|fruit
+L2|giant
+L2|glass
+L2|globe
+L2|grace
+L2|grand
+L2|guard
+L2|guess
+L2|heart
+L2|heavy
+L2|honor
+L2|human
+L2|hurry
+L2|image
+L2|lucky
+L2|magic
+L2|major
+L2|match
+L2|money
+L2|month
+L2|ocean
+L2|offer
+L2|order
+L2|paint
+L2|party
+L2|peace
+L2|phone
+L2|photo
+L2|pilot
+L2|pizza
+L2|plane
+L2|point
+L2|press
+L2|price
+L2|pride
+L2|queen
+L2|quick
+L2|quiet
+L2|radio
+L2|range
+L2|rapid
+L2|reach
+L2|rebel
+L2|relax
+L2|reply
+L2|rider
+L2|river
+L2|robot
+L2|rocky
+L2|round
+L2|royal
+L2|ruler
+L2|score
+L2|sense
+L2|serve
+L2|seven
+L2|share
+L2|sharp
+L2|shift
+L2|shine
+L2|shock
+L2|shore
+L2|short
+L2|shout
+L2|silly
+L2|skill
+L2|sleep
+L2|slide
+L2|smile
+L2|smoke
+L2|snake
+L2|solve
+L2|south
+L2|spare
+L2|spark
+L2|spell
+L2|spend
+L2|split
+L2|spray
+L2|squad
+L2|stage
+L2|stand
+L2|state
+L2|steam
+L2|steel
+L2|stone
+L2|storm
+L2|story
+L2|stuck
+L2|style
+L2|sugar
+L2|super
+L2|surge
+L2|sweet
+L2|swift
+L2|sword
+L2|table
+L2|teach
+L2|theme
+L2|thick
+L2|throw
+L2|tiger
+L2|touch
+L2|tower
+L2|track
+L2|trade
+L2|train
+L2|treat
+L2|trust
+L2|truth
+L2|twice
+L2|twist
+L2|under
+L2|union
+L2|until
+L2|value
+L2|video
+L2|visit
+L2|voice
+L2|watch
+L2|wheel
+L2|while
+L2|white
+L2|whole
+L2|woman
+L2|worth
+L2|yacht
+L2|young
+L2|youth
+L3|keyboard
+L3|practice
+L3|mountain
+L3|elephant
+L3|beautiful
+L3|computer
+L3|together
+L3|question
+L3|important
+L3|different
+L3|remember
+L3|language
+L3|business
+L3|children
+L3|thousand
+L3|daughter
+L3|hospital
+L3|birthday
+L3|breakfast
+L3|chocolate
+L3|education
+L3|national
+L3|history
+L3|science
+L3|morning
+L3|evening
+L3|student
+L3|teacher
+L3|special
+L3|middle
+L3|around
+L3|family
+L3|school
+L3|second
+L3|minute
+L3|notice
+L3|always
+L3|during
+L3|strong
+L3|change
+L3|number
+L3|person
+L3|follow
+L3|happen
+L3|result
+L3|picture
+L3|society
+L3|problem
+L3|process
+L3|product
+L3|project
+L3|protect
+L3|provide
+L3|quality
+L3|quarter
+L3|quickly
+L3|reading
+L3|realize
+L3|receive
+L3|replace
+L3|require
+L3|respect
+L3|respond
+L3|restore
+L3|section
+L3|service
+L3|several
+L3|similar
+L3|station
+L3|subject
+L3|success
+L3|support
+L3|surface
+L3|survive
+L3|achieve
+L3|address
+L3|advance
+L3|already
+L3|another
+L3|balance
+L3|between
+L3|billion
+L3|brother
+L3|captain
+L3|capture
+L3|century
+L3|certain
+L3|chapter
+L3|climate
+L3|college
+L3|comfort
+L3|command
+L3|connect
+L3|contact
+L3|contain
+L3|control
+L3|convert
+L3|council
+L3|country
+L3|courage
+L3|culture
+L3|current
+L3|defense
+L3|deliver
+L3|develop
+L3|digital
+L3|discuss
+L3|disease
+L3|display
+L3|dolphin
+L3|drawing
+L3|explore
+L3|extreme
+L3|factory
+L3|failure
+L3|fantasy
+L3|fashion
+L3|feature
+L3|feeling
+L3|fiction
+L3|forward
+L3|freedom
+L3|gallery
+L3|general
+L3|gravity
+L3|growing
+L3|harvest
+L3|healthy
+L3|highway
+L3|holiday
+L3|horizon
+L3|include
+L3|initial
+L3|inspire
+L3|install
+L3|instead
+L3|involve
+L3|journal
+L3|journey
+L3|justice
+L3|kitchen
+L3|library
+L3|limited
+L3|massive
+L3|mention
+L3|message
+L3|mission
+L3|monitor
+L3|mystery
+L3|natural
+L3|network
+L3|nothing
+L3|nuclear
+L3|observe
+L3|obvious
+L3|officer
+L3|opinion
+L3|outdoor
+L3|pattern
+L3|payment
+L3|perform
+L3|physics
+L3|plastic
+L3|popular
+L3|portion
+L3|present
+L3|primary
+L3|private
+`;
+
+function parseWords(src) {
+  wordPool = [];
+  for (const line of src.split('\n')) {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) continue;
+    const sep = t.indexOf('|');
+    if (sep < 0) continue;
+    const level = t.slice(0, sep).trim().toUpperCase();
+    const word  = t.slice(sep + 1).trim().toLowerCase();
+    if (level && word) wordPool.push({ level, word });
+  }
+}
+
+async function loadWords() {
+  try {
+    const r = await fetch('words.txt');
+    if (!r.ok) throw 0;
+    parseWords(await r.text());
+    if (wordPool.length < 10) throw 0;
+  } catch {
+    parseWords(FALLBACK);
+  }
+}
+
+/* ── Leaderboard (localStorage) ────────────────────────────────────────────── */
+const LB_KEY = 'wordDrop_lb_v1';
+
+function getLeaderboard() {
+  try { return JSON.parse(localStorage.getItem(LB_KEY) || '[]'); } catch { return []; }
+}
+function saveLeaderboard(lb) {
+  try { localStorage.setItem(LB_KEY, JSON.stringify(lb)); } catch {}
+}
+function isTopTen(score) {
+  const lb = getLeaderboard();
+  return lb.length < 10 || score > lb[lb.length - 1].score;
+}
+function addToLeaderboard(name, score, startLevel, reachedLevel, kid) {
+  const lb = getLeaderboard();
+  lb.push({
+    name: (name.trim() || 'Anonymous').slice(0, 16),
+    score, startLevel, reachedLevel, kid: !!kid,
+    date: new Date().toLocaleDateString(),
+  });
+  lb.sort((a, b) => b.score - a.score);
+  if (lb.length > 10) lb.splice(10);
+  saveLeaderboard(lb);
+}
+
+/* ── Audio feedback (Web Audio API – no external files needed) ──────────────── */
+let _audioCtx = null;
+function _getCtx() {
+  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+function playSuccess() {
+  try {
+    const ctx = _getCtx();
+    // Pleasant ascending C-E-G arpeggio
+    [[0, 523], [0.10, 659], [0.20, 784]].forEach(([t, freq]) => {
+      const osc = ctx.createOscillator(), g = ctx.createGain();
+      osc.connect(g); g.connect(ctx.destination);
+      osc.type = 'sine'; osc.frequency.value = freq;
+      g.gain.setValueAtTime(0.28, ctx.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.20);
+      osc.start(ctx.currentTime + t); osc.stop(ctx.currentTime + t + 0.22);
+    });
+  } catch (_) {}
+}
+function playError() {
+  try {
+    const ctx = _getCtx();
+    const osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.connect(g); g.connect(ctx.destination);
+    osc.type = 'sawtooth'; osc.frequency.value = 140;
+    g.gain.setValueAtTime(0.22, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.13);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
+  } catch (_) {}
+}
+
+/* ── Shared grid background helper ─────────────────────────────────────────── */
+function drawGrid(scene, lineColor = 0x1e1e38, alpha = 0.5) {
+  const g = scene.add.graphics();
+  g.lineStyle(1, lineColor, alpha);
+  for (let x = 0; x <= W; x += 40) g.lineBetween(x, 0, x, H);
+  for (let y = 0; y <= H; y += 40) g.lineBetween(0, y, W, y);
+  return g;
+}
+
+function makeButton(scene, x, y, w, h, fillColor, label, fontSize = 22) {
+  const bg = scene.add.rectangle(x, y, w, h, fillColor).setInteractive({ useHandCursor: true });
+  const txt = scene.add.text(x, y, label, {
+    fontSize: `${fontSize}px`, fill: '#ffffff',
+    fontFamily: '"Arial Black", Arial, sans-serif',
+  }).setOrigin(0.5);
+  const darken = Phaser.Display.Color.ValueToColor(fillColor);
+  darken.darken(20);
+  bg.on('pointerover', () => bg.setFillStyle(darken.color));
+  bg.on('pointerout',  () => bg.setFillStyle(fillColor));
+  return { bg, txt };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   MENU SCENE
+════════════════════════════════════════════════════════════════════════════ */
+class MenuScene extends Phaser.Scene {
+  constructor() { super('Menu'); }
+
+  create() {
+    this.selectedLevel = 3;
+    this.kidMode       = false;
+
+    this.add.rectangle(W / 2, H / 2, W, H, 0x1a1a2e);
+    drawGrid(this);
+
+    // Title
+    this.add.text(W / 2, 62, 'WORD DROP', {
+      fontSize: '66px', fill: '#00ccff',
+      fontFamily: '"Arial Black", Arial, sans-serif',
+      stroke: '#004488', strokeThickness: 8,
+    }).setOrigin(0.5);
+
+    this.add.text(W / 2, 128, 'Type the falling words before they hit the ground!', {
+      fontSize: '16px', fill: '#6677aa', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+
+    // ── Difficulty selector ──────────────────────────────────────────────────
+    this.add.text(W / 2, 172, 'DIFFICULTY', {
+      fontSize: '17px', fill: '#8899bb',
+      fontFamily: '"Arial Black", Arial, sans-serif', letterSpacing: 5,
+    }).setOrigin(0.5);
+
+    const arrowCfg = { fontSize: '38px', fill: '#334466', fontFamily: '"Arial Black", Arial' };
+    const lArr = this.add.text(W / 2 - 105, 223, '◄', arrowCfg).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    const rArr = this.add.text(W / 2 + 105, 223, '►', arrowCfg).setOrigin(0.5).setInteractive({ useHandCursor: true });
+
+    lArr.on('pointerover', () => lArr.setStyle({ fill: '#aabbcc' }));
+    lArr.on('pointerout',  () => lArr.setStyle({ fill: '#334466' }));
+    lArr.on('pointerdown', () => { this.selectedLevel = Math.max(0, this.selectedLevel - 1); this.refreshLevel(); });
+    rArr.on('pointerover', () => rArr.setStyle({ fill: '#aabbcc' }));
+    rArr.on('pointerout',  () => rArr.setStyle({ fill: '#334466' }));
+    rArr.on('pointerdown', () => { this.selectedLevel = Math.min(9, this.selectedLevel + 1); this.refreshLevel(); });
+
+    this.numTxt = this.add.text(W / 2, 218, '3', {
+      fontSize: '76px', fill: LEVEL_COLORS[3],
+      fontFamily: '"Arial Black", Arial, sans-serif',
+      stroke: '#000033', strokeThickness: 5,
+    }).setOrigin(0.5);
+
+    this.descTxt = this.add.text(W / 2, 280, DIFF_LABELS[3], {
+      fontSize: '18px', fill: LEVEL_COLORS[3], fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+
+    this.infoTxt = this.add.text(W / 2, 305, '', {
+      fontSize: '13px', fill: '#445566', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+
+    this.add.text(W / 2, 328, 'Press 0 – 9 to select', {
+      fontSize: '12px', fill: '#2a3a4a', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+
+    // ── Kid mode toggle ──────────────────────────────────────────────────────
+    const kidBg = this.add.rectangle(W / 2, 366, 390, 44, 0x1a2436)
+      .setStrokeStyle(2, 0x2a3a50).setInteractive({ useHandCursor: true });
+    this.kidTxt = this.add.text(W / 2, 366, '', {
+      fontSize: '17px', fill: '#7788aa', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+    kidBg.on('pointerover', () => kidBg.setFillStyle(0x22304a));
+    kidBg.on('pointerout',  () => kidBg.setFillStyle(0x1a2436));
+    kidBg.on('pointerdown', () => { this.kidMode = !this.kidMode; this.refreshKid(); });
+
+    // ── START button ─────────────────────────────────────────────────────────
+    const sb = makeButton(this, W / 2, 428, 230, 60, 0x0066bb, 'START GAME', 26);
+    sb.bg.on('pointerdown', () => this.scene.start('Game', { level: this.selectedLevel, kid: this.kidMode }));
+
+    // ── Leaderboard button ───────────────────────────────────────────────────
+    const lb = this.add.rectangle(W / 2, 498, 230, 44, 0x1c2a3a)
+      .setStrokeStyle(2, 0x334455).setInteractive({ useHandCursor: true });
+    this.add.text(W / 2, 498, '🏆  LEADERBOARD', {
+      fontSize: '19px', fill: '#aabbcc', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+    lb.on('pointerover', () => lb.setFillStyle(0x263444));
+    lb.on('pointerout',  () => lb.setFillStyle(0x1c2a3a));
+    lb.on('pointerdown', () => this.scene.start('Leaderboard'));
+
+    this.add.text(W / 2, 555, 'Just start typing  ·  Backspace to correct  ·  Esc to clear', {
+      fontSize: '12px', fill: '#2a3545', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+
+    // Keyboard: 0-9 shortcut
+    this.input.keyboard.on('keydown', (e) => {
+      if (e.key >= '0' && e.key <= '9') {
+        this.selectedLevel = parseInt(e.key, 10);
+        this.refreshLevel();
+      }
+    });
+
+    this.refreshLevel();
+    this.refreshKid();
+  }
+
+  refreshLevel() {
+    const lv  = this.selectedLevel;
+    const cfg = LEVEL_CONFIG[lv];
+    this.numTxt.setText(`${lv}`).setStyle({ fill: LEVEL_COLORS[lv] });
+    this.descTxt.setText(DIFF_LABELS[lv]).setStyle({ fill: LEVEL_COLORS[lv] });
+    const spd  = this.kidMode ? Math.round(cfg.speed * 0.5)    : cfg.speed;
+    const intv = (this.kidMode ? cfg.interval * 2 : cfg.interval) / 1000;
+    this.infoTxt.setText(`${spd} px/s  ·  new word every ${intv}s`);
+  }
+
+  refreshKid() {
+    const on = this.kidMode;
+    this.kidTxt.setText(`${on ? '✓' : '○'}  Kid Mode  –  ½ speed · double interval · ×2 score`);
+    this.kidTxt.setStyle({ fill: on ? '#88ffaa' : '#7788aa' });
+    this.refreshLevel();
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   GAME SCENE
+════════════════════════════════════════════════════════════════════════════ */
+class GameScene extends Phaser.Scene {
+  constructor() { super('Game'); }
+
+  init(data) {
+    this.startLevel  = typeof data.level === 'number' ? data.level : 3;
+    this.kidMode     = data.kid || false;
+  }
+
+  /* ── helpers ── */
+  getEffectiveCfg(level) {
+    const b = LEVEL_CONFIG[level];
+    return this.kidMode
+      ? { speed: b.speed * 0.5, interval: b.interval * 2, pool: b.pool }
+      : b;
+  }
+
+  buildPool() {
+    const cfg      = this.getEffectiveCfg(this.currentLevel);
+    const filtered = wordPool.filter(w => cfg.pool.includes(w.level)).map(w => w.word);
+    this.pool      = Phaser.Utils.Array.Shuffle(filtered.length ? filtered : ['type','word','game','play','test']);
+    this.poolIdx   = 0;
+  }
+
+  nextWord() {
+    const w = this.pool[this.poolIdx % this.pool.length];
+    this.poolIdx++;
+    if (this.poolIdx >= this.pool.length) { Phaser.Utils.Array.Shuffle(this.pool); this.poolIdx = 0; }
+    return w;
+  }
+
+  /* ── create ── */
+  create() {
+    this.hp           = MAX_HP;
+    this.score        = 0;
+    this.typed        = '';
+    this.words        = [];
+    this.flashing     = false;
+    this.dead         = false;
+    this.frozen       = true;   // true during countdown / pause
+    this.gamePaused   = false;
+    this.pauseElems   = [];
+    this.currentLevel = this.startLevel;
+
+    const cfg = this.getEffectiveCfg(this.currentLevel);
+    this.fallSpeed = cfg.speed;
+
+    /* Background */
+    this.bgRect = this.add.rectangle(W / 2, H / 2, W, H, 0x1a1a2e).setDepth(0);
+    drawGrid(this, 0x1e2640, 0.4);
+
+    /* Ground line */
+    this.add.rectangle(W / 2, GROUND_Y + 2, W, 4, 0xff3333).setDepth(1);
+
+    /* ── HP bar (top-left) ── */
+    this.hpGfx = this.add.graphics().setDepth(3);
+    this.HP    = { x: 14, y: 13, w: 180, h: 22 };
+    this.drawHpBar();
+    this.hpLbl = this.add.text(14, this.HP.y + this.HP.h + 2, `HP: ${this.hp}`, {
+      fontSize: '14px', fill: '#cc4444', fontFamily: 'Arial, sans-serif',
+    }).setDepth(3);
+
+    /* ── Level display (top-center) ── */
+    this.levelTxt = this.add.text(W / 2, 12, '', {
+      fontSize: '22px', fill: LEVEL_COLORS[this.currentLevel],
+      fontFamily: '"Arial Black", Arial, sans-serif',
+      stroke: '#000033', strokeThickness: 3,
+    }).setOrigin(0.5, 0).setDepth(3);
+
+    this.lvlUpTxt = this.add.text(W / 2, 38, '', {
+      fontSize: '12px', fill: '#445566', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5, 0).setDepth(3);
+
+    this.refreshLevelDisplay();
+
+    /* ── Score (top-right) ── */
+    this.scoreTxt = this.add.text(W - 14, 13, 'Score: 0', {
+      fontSize: '22px', fill: '#ffdd00',
+      fontFamily: '"Arial Black", Arial, sans-serif',
+      stroke: '#443300', strokeThickness: 3,
+    }).setOrigin(1, 0).setDepth(3);
+
+    /* ── Menu button (top-right, below score) ── */
+    this.menuConfirm = false;
+    const menuBtnBg = this.add.rectangle(W - 57, 46, 88, 22, 0x1c2a3a)
+      .setStrokeStyle(1, 0x334455).setInteractive({ useHandCursor: true }).setDepth(3);
+    this.menuBtnTxt = this.add.text(W - 57, 46, '⌂ MENU', {
+      fontSize: '12px', fill: '#7788aa', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5).setDepth(3);
+    menuBtnBg.on('pointerover', () => { menuBtnBg.setFillStyle(0x263444); if (!this.menuConfirm) this.menuBtnTxt.setStyle({ fill: '#aabbcc' }); });
+    menuBtnBg.on('pointerout',  () => { menuBtnBg.setFillStyle(0x1c2a3a); if (!this.menuConfirm) this.menuBtnTxt.setStyle({ fill: '#7788aa' }); });
+    menuBtnBg.on('pointerdown', () => {
+      if (!this.menuConfirm) {
+        this.menuConfirm = true;
+        this.menuBtnTxt.setText('CONFIRM?').setStyle({ fill: '#ff8844' });
+        // auto-reset after 2s if not clicked again
+        this.time.delayedCall(2000, () => {
+          if (this.menuConfirm) { this.menuConfirm = false; this.menuBtnTxt.setText('⌂ MENU').setStyle({ fill: '#7788aa' }); }
+        });
+      } else {
+        this.dead = true;
+        this.spawnTimer.remove(false);
+        if (this.levelTimer) this.levelTimer.remove(false);
+        this.input.keyboard.off('keydown', this.onKey, this);
+        for (const fw of this.words) fw.obj.destroy();
+        this.words = [];
+        this.scene.start('Menu');
+      }
+    });
+
+    /* ── Pause button (top-right, left of menu button) ── */
+    const pauseBtnBg = this.add.rectangle(W - 155, 46, 80, 22, 0x1c2a3a)
+      .setStrokeStyle(1, 0x334455).setInteractive({ useHandCursor: true }).setDepth(3);
+    this.pauseBtnTxt = this.add.text(W - 155, 46, '⏸', {
+      fontSize: '14px', fill: '#7788aa', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5).setDepth(3);
+    pauseBtnBg.on('pointerover', () => pauseBtnBg.setFillStyle(0x263444));
+    pauseBtnBg.on('pointerout',  () => pauseBtnBg.setFillStyle(0x1c2a3a));
+    pauseBtnBg.on('pointerdown', () => {
+      if (this.gamePaused) this.resumeGame();
+      else this.pauseGame();
+    });
+
+    /* ── Input bar (bottom) ── */
+    this.add.rectangle(W / 2, H - 27, W, 54, 0x0d1020).setDepth(1);
+    this.add.rectangle(W / 2, H - 53, W, 2,  0x1e2e50).setDepth(2);
+    this.inputTxt = this.add.text(W / 2, H - 27, '', {
+      fontSize: '28px', fill: '#00ff88', fontFamily: 'monospace',
+      stroke: '#003322', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(3);
+
+    /* Keyboard */
+    this.input.keyboard.on('keydown', this.onKey, this);
+
+    /* Countdown 3-2-1-GO!, then begin play */
+    this.startCountdown(() => this.beginPlay());
+  }
+
+  restartSpawnTimer(interval) {
+    if (this.spawnTimer) this.spawnTimer.remove(false);
+    this.spawnTimer = this.time.addEvent({
+      delay: interval, callback: this.spawnWord, callbackScope: this, loop: true,
+    });
+  }
+
+  beginPlay() {
+    this.frozen = false;
+    const cfg = this.getEffectiveCfg(this.currentLevel);
+    this.buildPool();
+    this.restartSpawnTimer(cfg.interval);
+    this.spawnWord();
+    this.levelTimer = (this.currentLevel < 9)
+      ? this.time.addEvent({ delay: LEVEL_UP_SEC * 1000, callback: this.levelUp, callbackScope: this, loop: true })
+      : null;
+  }
+
+  startCountdown(onComplete) {
+    const overlay = this.add.rectangle(W / 2, H / 2, W, H, 0x000000).setAlpha(0.5).setDepth(18);
+    const STEP   = 850;
+    const labels = ['3', '2', '1', 'GO!'];
+    const colors = ['#ff6644', '#ffcc00', '#88ff44', '#00ff88'];
+    labels.forEach((label, i) => {
+      this.time.delayedCall(i * STEP, () => {
+        const isGo = i === 3;
+        const t = this.add.text(W / 2, H / 2, label, {
+          fontSize: isGo ? '78px' : '120px',
+          fill: colors[i],
+          fontFamily: '"Arial Black", Arial, sans-serif',
+          stroke: '#000033', strokeThickness: 10,
+          shadow: { color: colors[i], blur: 40, fill: true },
+        }).setOrigin(0.5).setDepth(20);
+        this.tweens.add({
+          targets: t,
+          alpha: { from: 1, to: 0 },
+          scale: { from: 1, to: isGo ? 1.8 : 0.6 },
+          duration: STEP - 80,
+          ease: 'Power2',
+          onComplete: () => t.destroy(),
+        });
+      });
+    });
+    this.time.delayedCall(labels.length * STEP, () => { overlay.destroy(); if (onComplete) onComplete(); });
+  }
+
+  pauseGame() {
+    if (this.dead || this.frozen) return;
+    this.frozen = true;
+    this.gamePaused = true;
+    this.pauseBtnTxt.setText('▶ RESUME').setStyle({ fill: '#aaffaa' });
+    this.pauseElems.push(
+      this.add.rectangle(W / 2, H / 2, W, H, 0x000000).setAlpha(0.55).setDepth(15),
+      this.add.text(W / 2, H / 2 - 20, 'PAUSED', {
+        fontSize: '72px', fill: '#ffffff',
+        fontFamily: '"Arial Black", Arial, sans-serif',
+        stroke: '#000033', strokeThickness: 8,
+      }).setOrigin(0.5).setDepth(16),
+      this.add.text(W / 2, H / 2 + 46, 'click  ▶ RESUME  to continue', {
+        fontSize: '18px', fill: '#8899aa', fontFamily: 'Arial, sans-serif',
+      }).setOrigin(0.5).setDepth(16),
+    );
+  }
+
+  resumeGame() {
+    this.gamePaused = false;
+    this.pauseBtnTxt.setText('⏸').setStyle({ fill: '#7788aa' });
+    for (const e of this.pauseElems) e.destroy();
+    this.pauseElems = [];
+    this.startCountdown(() => { this.frozen = false; });
+  }
+
+  /* ── Spawn ── */
+  spawnWord() {
+    if (this.dead || this.frozen) return;
+    const active = new Set(this.words.map(w => w.word));
+    let word, tries = 0;
+    do { word = this.nextWord(); tries++; } while (active.has(word) && tries < 20);
+
+    const obj = this.add.text(
+      Phaser.Math.Between(70, W - 70), -34, word, {
+        fontSize: '30px', fill: '#e0e8ff', fontFamily: 'monospace',
+        stroke: '#000022', strokeThickness: 4,
+      }
+    ).setOrigin(0.5, 0).setDepth(4);
+    this.words.push({ obj, word });
+  }
+
+  /* ── Level up ── */
+  levelUp() {
+    if (this.dead || this.frozen || this.currentLevel >= 9) return;
+    this.currentLevel = Math.min(9, this.currentLevel + 1);
+    const cfg = this.getEffectiveCfg(this.currentLevel);
+    this.fallSpeed = cfg.speed;
+    this.restartSpawnTimer(cfg.interval);
+    this.buildPool();
+    this.refreshLevelDisplay();
+    this.showLevelUpNotif();
+    if (this.currentLevel >= 9 && this.levelTimer) { this.levelTimer.remove(false); this.levelTimer = null; }
+  }
+
+  refreshLevelDisplay() {
+    this.levelTxt.setText(`LVL ${this.currentLevel}`).setStyle({ fill: LEVEL_COLORS[this.currentLevel] });
+  }
+
+  showLevelUpNotif() {
+    const n = this.add.text(W / 2, H / 2 - 60, `⬆ LEVEL ${this.currentLevel}`, {
+      fontSize: '50px', fill: LEVEL_COLORS[this.currentLevel],
+      fontFamily: '"Arial Black", Arial, sans-serif',
+      stroke: '#000033', strokeThickness: 6,
+    }).setOrigin(0.5).setDepth(10);
+    this.tweens.add({ targets: n, y: n.y - 90, alpha: 0, duration: 1400, ease: 'Cubic.Out', onComplete: () => n.destroy() });
+  }
+
+  /* ── Key handler ── */
+  onKey(e) {
+    if (this.dead || this.frozen) return;
+    if (e.key === 'Backspace') { this.typed = this.typed.slice(0, -1); this.refreshInput(); this.highlight(); return; }
+    if (e.key === 'Escape')    { this.typed = '';                       this.refreshInput(); this.highlight(); return; }
+    if (e.key.length !== 1 || !/[a-zA-Z]/.test(e.key)) return;
+
+    const cand = this.typed + e.key.toLowerCase();
+    if (!this.words.some(w => w.word.startsWith(cand))) { this.typed = cand; this.flashTypo(); }
+    else { this.typed = cand; }
+
+    const exact = this.words.find(w => w.word === this.typed);
+    if (exact) { this.destroyWord(exact); this.typed = ''; }
+
+    this.refreshInput();
+    this.highlight();
+  }
+
+  destroyWord(fw) {
+    const pts = fw.word.length * 10 * (this.kidMode ? 2 : 1);
+    this.score += pts;
+    this.scoreTxt.setText(`Score: ${this.score}`);
+
+    const pop = this.add.text(fw.obj.x, fw.obj.y + fw.obj.height / 2, `+${pts}`, {
+      fontSize: '22px', fill: '#ffff44',
+      fontFamily: '"Arial Black", Arial, sans-serif',
+      stroke: '#554400', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(6);
+    this.tweens.add({ targets: pop, y: pop.y - 70, alpha: 0, duration: 800, ease: 'Cubic.Out', onComplete: () => pop.destroy() });
+    playSuccess();
+
+    for (let i = 0; i < 6; i++) {
+      const sp = this.add.circle(
+        fw.obj.x + Phaser.Math.Between(-20, 20),
+        fw.obj.y + fw.obj.height / 2,
+        Phaser.Math.Between(3, 7),
+        Phaser.Display.Color.HSLToColor(Math.random(), 1, 0.6).color,
+      ).setDepth(5);
+      this.tweens.add({ targets: sp, x: sp.x + Phaser.Math.Between(-60, 60), y: sp.y + Phaser.Math.Between(-60, 20), alpha: 0, scaleX: 0, scaleY: 0, duration: Phaser.Math.Between(400, 700), onComplete: () => sp.destroy() });
+    }
+
+    fw.obj.destroy();
+    this.words = this.words.filter(w => w !== fw);
+  }
+
+  flashTypo() {
+    if (this.flashing) return;
+    this.flashing = true;
+    this.bgRect.setFillStyle(0x550000);
+    this.time.delayedCall(100, () => { this.bgRect.setFillStyle(0x1a1a2e); this.flashing = false; });
+    playError();
+  }
+
+  refreshInput() { this.inputTxt.setText(this.typed ? `> ${this.typed}_` : ''); }
+
+  highlight() {
+    for (const fw of this.words) fw.obj.setStyle({ fill: '#e0e8ff' });
+    if (!this.typed) return;
+    const m = this.words.filter(w => w.word.startsWith(this.typed));
+    if (!m.length) { for (const fw of this.words) fw.obj.setStyle({ fill: '#884444' }); return; }
+    m.sort((a, b) => b.obj.y - a.obj.y);
+    m[0].obj.setStyle({ fill: '#00ff88' });
+    for (let i = 1; i < m.length; i++) m[i].obj.setStyle({ fill: '#66ccaa' });
+  }
+
+  drawHpBar() {
+    const { x, y, w, h } = this.HP;
+    const pct = Math.max(0, this.hp / MAX_HP);
+    const col = pct > 0.5 ? 0x00cc55 : pct > 0.25 ? 0xdd7700 : 0xcc2222;
+    this.hpGfx.clear();
+    this.hpGfx.fillStyle(0x112233); this.hpGfx.fillRect(x, y, w, h);
+    this.hpGfx.fillStyle(col);      this.hpGfx.fillRect(x, y, Math.ceil(w * pct), h);
+    this.hpGfx.lineStyle(2, 0x223344); this.hpGfx.strokeRect(x, y, w, h);
+  }
+
+  updateHp() {
+    this.drawHpBar();
+    this.hpLbl.setText(`HP: ${this.hp}`);
+    const pct = this.hp / MAX_HP;
+    this.hpLbl.setStyle({ fill: pct > 0.5 ? '#55cc77' : pct > 0.25 ? '#dd8800' : '#ff3333' });
+  }
+
+  /* ── Update loop ── */
+  update(_, delta) {
+    if (this.dead || this.frozen) return;
+
+    // Countdown display
+    if (this.levelTimer && this.currentLevel < 9) {
+      const sec = Math.ceil(this.levelTimer.getRemaining() / 1000);
+      this.lvlUpTxt.setText(`→ LVL ${this.currentLevel + 1} in ${sec}s`);
+    } else {
+      this.lvlUpTxt.setText(this.currentLevel >= 9 ? '— MAX LEVEL —' : '');
+    }
+
+    const dt = delta / 1000, lost = [];
+    for (const fw of this.words) {
+      fw.obj.y += this.fallSpeed * dt;
+      if (fw.obj.y >= GROUND_Y) lost.push(fw);
+    }
+
+    if (lost.length) {
+      for (const fw of lost) {
+        this.cameras.main.shake(180, 0.008);
+        this.hp = Math.max(0, this.hp - fw.word.length);
+        const fl = this.add.rectangle(fw.obj.x, GROUND_Y + 2, 200, 6, 0xff6622).setDepth(5);
+        this.time.delayedCall(240, () => fl.destroy());
+        fw.obj.destroy();
+        this.words = this.words.filter(w => w !== fw);
+        if (this.typed && fw.word.startsWith(this.typed)) { this.typed = ''; this.refreshInput(); }
+      }
+      this.updateHp();
+      this.highlight();
+      if (this.hp <= 0) { this.triggerGameOver(); }
+    }
+  }
+
+  triggerGameOver() {
+    this.dead = true;
+    this.spawnTimer.remove(false);
+    if (this.levelTimer) this.levelTimer.remove(false);
+    this.input.keyboard.off('keydown', this.onKey, this);
+    for (const fw of this.words) fw.obj.destroy();
+    this.words = [];
+    this.cameras.main.shake(400, 0.02);
+    this.time.delayedCall(500, () => {
+      this.scene.start('GameOver', {
+        score:        this.score,
+        startLevel:   this.startLevel,
+        reachedLevel: this.currentLevel,
+        kid:          this.kidMode,
+      });
+    });
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   GAME OVER SCENE
+════════════════════════════════════════════════════════════════════════════ */
+class GameOverScene extends Phaser.Scene {
+  constructor() { super('GameOver'); }
+
+  init(data) {
+    this.finalScore   = data.score        ?? 0;
+    this.startLevel   = data.startLevel   ?? 3;
+    this.reachedLevel = data.reachedLevel ?? this.startLevel;
+    this.kidMode      = data.kid          || false;
+  }
+
+  create() {
+    this.nameInput   = '';
+    this.cursorVis   = true;
+    this.nameDisplay = null;
+    this.cursorEv    = null;
+    this.nameElems   = [];
+
+    this.add.rectangle(W / 2, H / 2, W, H, 0x0d0d1a);
+    drawGrid(this, 0x141428, 0.6);
+
+    /* GAME OVER title */
+    this.add.text(W / 2, 40, 'GAME OVER', {
+      fontSize: '54px', fill: '#ff3333',
+      fontFamily: '"Arial Black", Arial, sans-serif',
+      stroke: '#440000', strokeThickness: 8,
+      shadow: { color: '#ff0000', blur: 20, fill: true },
+    }).setOrigin(0.5);
+
+    /* Score */
+    this.add.text(W / 2, 108, `${this.finalScore}`, {
+      fontSize: '74px', fill: '#ffdd00',
+      fontFamily: '"Arial Black", Arial, sans-serif',
+      stroke: '#443300', strokeThickness: 5,
+    }).setOrigin(0.5);
+
+    /* Info line */
+    const kid  = this.kidMode ? ' · Kid' : '';
+    const prog = this.reachedLevel > this.startLevel
+      ? `  ·  Reached Level ${this.reachedLevel}` : '';
+    this.add.text(W / 2, 165, `POINTS  ·  Started Level ${this.startLevel}${prog}${kid}`, {
+      fontSize: '14px', fill: '#556677', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+
+    this.add.rectangle(W / 2, 179, 600, 1, 0x1e2e3e);
+
+    /* Name entry or direct leaderboard */
+    if (isTopTen(this.finalScore) && this.finalScore > 0) {
+      this.buildNameEntry();
+    } else {
+      this.buildLeaderboard(null);
+      this.buildButtons();
+    }
+  }
+
+  /* ── Name entry ── */
+  buildNameEntry() {
+    const push = obj => { this.nameElems.push(obj); return obj; };
+
+    push(this.add.text(W / 2, 196, '🏆  NEW HIGH SCORE!  You made Top 10!', {
+      fontSize: '19px', fill: '#ffdd44',
+      fontFamily: '"Arial Black", Arial, sans-serif',
+    }).setOrigin(0.5));
+
+    push(this.add.text(W / 2, 224, 'Enter your name:', {
+      fontSize: '15px', fill: '#9aaabb', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5));
+
+    push(this.add.rectangle(W / 2, 257, 360, 44, 0x0f1d30).setStrokeStyle(2, 0x0077cc));
+
+    this.nameDisplay = push(this.add.text(W / 2, 257, '_', {
+      fontSize: '26px', fill: '#ffffff', fontFamily: 'monospace',
+    }).setOrigin(0.5));
+
+    push(this.add.text(W / 2, 283, 'Press ENTER to confirm  (max 16 characters)', {
+      fontSize: '12px', fill: '#3a4a5a', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5));
+
+    this.cursorEv = this.time.addEvent({
+      delay: 500, loop: true,
+      callback: () => { this.cursorVis = !this.cursorVis; this.refreshNameDisplay(); },
+    });
+
+    this.input.keyboard.on('keydown', this.onNameKey, this);
+  }
+
+  onNameKey(e) {
+    if (e.key === 'Enter') {
+      if (!this.nameInput.length) return;
+      this.commitName(); return;
+    }
+    if (e.key === 'Backspace') { this.nameInput = this.nameInput.slice(0, -1); this.refreshNameDisplay(); return; }
+    if (e.key.length === 1 && /[\x20-\x7e]/.test(e.key) && this.nameInput.length < 16) {
+      this.nameInput += e.key; this.refreshNameDisplay();
+    }
+  }
+
+  refreshNameDisplay() {
+    if (this.nameDisplay) this.nameDisplay.setText(this.nameInput + (this.cursorVis ? '_' : ' '));
+  }
+
+  commitName() {
+    if (this.cursorEv) { this.cursorEv.remove(); this.cursorEv = null; }
+    this.input.keyboard.off('keydown', this.onNameKey, this);
+    addToLeaderboard(this.nameInput, this.finalScore, this.startLevel, this.reachedLevel, this.kidMode);
+    for (const o of this.nameElems) o.setVisible(false);
+    this.nameElems = [];
+    this.buildLeaderboard(this.nameInput);
+    this.buildButtons();
+  }
+
+  /* ── Leaderboard table ── */
+  buildLeaderboard(highlightName) {
+    const lb = getLeaderboard();
+    const C  = { rank: 100, name: 135, score: 500, level: 570, date: 690 };
+
+    this.add.text(W / 2, 191, '— TOP  10  LEADERBOARD —', {
+      fontSize: '12px', fill: '#2a3a4a',
+      fontFamily: 'Arial, sans-serif', letterSpacing: 3,
+    }).setOrigin(0.5);
+
+    const hY  = 207;
+    const hSt = { fontSize: '11px', fill: '#334455', fontFamily: 'Arial, sans-serif' };
+    this.add.text(C.rank,  hY, '#',     hSt).setOrigin(0.5, 0);
+    this.add.text(C.name,  hY, 'NAME',  hSt).setOrigin(0, 0);
+    this.add.text(C.score, hY, 'SCORE', hSt).setOrigin(1, 0);
+    this.add.text(C.level, hY, 'LVL',   hSt).setOrigin(0.5, 0);
+    this.add.text(C.date,  hY, 'DATE',  hSt).setOrigin(1, 0);
+    this.add.rectangle(W / 2, hY + 16, 630, 1, 0x1e2e3e);
+
+    if (!lb.length) {
+      this.add.text(W / 2, hY + 36, 'No entries yet — you will be the first!', {
+        fontSize: '14px', fill: '#334455', fontFamily: 'Arial, sans-serif',
+      }).setOrigin(0.5); return;
+    }
+
+    const medals = ['#ffd700', '#c0c0c0', '#cd7f32'];
+    lb.forEach((e, i) => {
+      const y     = hY + 24 + i * 22;
+      const isNew = highlightName !== null
+        && e.name === (this.nameInput || highlightName)
+        && e.score === this.finalScore
+        && i === lb.findIndex(x => x.name === e.name && x.score === e.score);
+
+      if (isNew) this.add.rectangle(W / 2, y + 9, 630, 21, 0x1a3a1a).setAlpha(0.8);
+      else if (i < 3) this.add.rectangle(W / 2, y + 9, 630, 21, 0x1a2234).setAlpha(0.5);
+
+      const col   = isNew ? '#88ff88' : i < 3 ? medals[i] : '#667788';
+      const rank  = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
+      const rs    = { fontSize: '13px', fill: col, fontFamily: 'Arial, sans-serif' };
+      const lvlBase = e.reachedLevel != null && e.reachedLevel !== e.startLevel
+        ? `${e.startLevel}→${e.reachedLevel}` : `${e.startLevel ?? '?'}`;
+      const lvl   = e.kid ? `${lvlBase} 👶` : lvlBase;
+
+      this.add.text(C.rank,  y, rank,              rs).setOrigin(0.5, 0);
+      this.add.text(C.name,  y, e.name,            rs).setOrigin(0, 0);
+      this.add.text(C.score, y, `${e.score}`,      rs).setOrigin(1, 0);
+      this.add.text(C.level, y, lvl,               rs).setOrigin(0.5, 0);
+      this.add.text(C.date,  y, e.date || '',      { fontSize: '11px', fill: '#2a3a4a', fontFamily: 'Arial, sans-serif' }).setOrigin(1, 0);
+      if (isNew) this.add.text(C.date + 16, y, '◄ new', { fontSize: '11px', fill: '#44ff88', fontFamily: 'Arial, sans-serif' }).setOrigin(0, 0);
+    });
+  }
+
+  buildButtons() {
+    const pb = makeButton(this, W / 2 - 115, 548, 200, 52, 0x0055aa, 'PLAY AGAIN', 20);
+    pb.bg.on('pointerdown', () => this.scene.start('Game', { level: this.startLevel, kid: this.kidMode }));
+
+    const mb = this.add.rectangle(W / 2 + 115, 548, 200, 52, 0x1e2a3a)
+      .setStrokeStyle(2, 0x334455).setInteractive({ useHandCursor: true });
+    this.add.text(W / 2 + 115, 548, 'MAIN MENU', {
+      fontSize: '20px', fill: '#9aaabb', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+    mb.on('pointerover', () => mb.setFillStyle(0x273550));
+    mb.on('pointerout',  () => mb.setFillStyle(0x1e2a3a));
+    mb.on('pointerdown', () => this.scene.start('Menu'));
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   LEADERBOARD SCENE
+════════════════════════════════════════════════════════════════════════════ */
+class LeaderboardScene extends Phaser.Scene {
+  constructor() { super('Leaderboard'); }
+
+  create() {
+    this.add.rectangle(W / 2, H / 2, W, H, 0x0d0d1a);
+    drawGrid(this, 0x141428, 0.6);
+
+    this.add.text(W / 2, 42, '🏆  LEADERBOARD', {
+      fontSize: '46px', fill: '#ffdd00',
+      fontFamily: '"Arial Black", Arial, sans-serif',
+      stroke: '#443300', strokeThickness: 6,
+    }).setOrigin(0.5);
+
+    const lb = getLeaderboard();
+    const C  = { rank: 100, name: 135, score: 500, level: 578, date: 690 };
+    const hY = 102;
+
+    const hSt = { fontSize: '12px', fill: '#445566', fontFamily: 'Arial, sans-serif', letterSpacing: 1 };
+    this.add.text(C.rank,  hY, '#',      hSt).setOrigin(0.5, 0);
+    this.add.text(C.name,  hY, 'NAME',   hSt).setOrigin(0, 0);
+    this.add.text(C.score, hY, 'SCORE',  hSt).setOrigin(1, 0);
+    this.add.text(C.level, hY, 'LEVEL',  hSt).setOrigin(0.5, 0);
+    this.add.text(C.date,  hY, 'DATE',   hSt).setOrigin(1, 0);
+    this.add.rectangle(W / 2, hY + 19, 632, 1, 0x223344);
+
+    if (!lb.length) {
+      this.add.text(W / 2, 300, 'No scores yet.\nPlay a game to get on the board!', {
+        fontSize: '22px', fill: '#334455', fontFamily: 'Arial, sans-serif', align: 'center',
+      }).setOrigin(0.5);
+    } else {
+      const medals = ['#ffd700', '#c0c0c0', '#cd7f32'];
+      lb.forEach((e, i) => {
+        const y    = hY + 27 + i * 38;
+        const col  = i < 3 ? medals[i] : (i % 2 === 0 ? '#8899aa' : '#778899');
+        const rank = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
+        const rs      = { fontSize: '18px', fill: col, fontFamily: i < 3 ? '"Arial Black", Arial, sans-serif' : 'Arial, sans-serif' };
+        const lvlBase = e.reachedLevel != null && e.reachedLevel !== e.startLevel
+          ? `${e.startLevel}→${e.reachedLevel}` : `${e.startLevel ?? '?'}`;
+        const lvl     = e.kid ? `${lvlBase} 👶` : lvlBase;
+
+        if (i < 3) this.add.rectangle(W / 2, y + 14, 632, 36, 0x1a2234).setAlpha(0.6);
+
+        this.add.text(C.rank,  y, rank,                       rs).setOrigin(0.5, 0);
+        this.add.text(C.name,  y, e.name,                     rs).setOrigin(0, 0);
+        this.add.text(C.score, y, e.score.toLocaleString(),   rs).setOrigin(1, 0);
+        this.add.text(C.level, y, lvl, { ...rs, fontSize: '14px' }).setOrigin(0.5, 0);
+        this.add.text(C.date,  y, e.date || '', {
+          fontSize: '12px', fill: '#334455', fontFamily: 'Arial, sans-serif',
+        }).setOrigin(1, 0);
+      });
+    }
+
+    /* Back button */
+    const back = this.add.rectangle(W / 2 - 120, 562, 200, 48, 0x1e2a3a)
+      .setStrokeStyle(2, 0x334455).setInteractive({ useHandCursor: true });
+    this.add.text(W / 2 - 120, 562, '← BACK', {
+      fontSize: '20px', fill: '#9aaabb', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+    back.on('pointerover', () => back.setFillStyle(0x273550));
+    back.on('pointerout',  () => back.setFillStyle(0x1e2a3a));
+    back.on('pointerdown', () => this.scene.start('Menu'));
+
+    /* Clear button (two-click confirm) */
+    this.clearConfirm = false;
+    const clrBg = this.add.rectangle(W / 2 + 120, 562, 200, 48, 0x2a1a1a)
+      .setStrokeStyle(2, 0x442222).setInteractive({ useHandCursor: true });
+    this.clrTxt = this.add.text(W / 2 + 120, 562, 'CLEAR ALL', {
+      fontSize: '18px', fill: '#884444', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+    clrBg.on('pointerover', () => clrBg.setFillStyle(0x3a2020));
+    clrBg.on('pointerout',  () => clrBg.setFillStyle(0x2a1a1a));
+    clrBg.on('pointerdown', () => {
+      if (!this.clearConfirm) {
+        this.clearConfirm = true;
+        this.clrTxt.setText('CONFIRM?').setStyle({ fill: '#ff4444' });
+      } else {
+        saveLeaderboard([]);
+        this.scene.restart();
+      }
+    });
+  }
+}
+
+/* ── Boot ───────────────────────────────────────────────────────────────────── */
+async function boot() {
+  await loadWords();
+  new Phaser.Game({
+    type: Phaser.AUTO,
+    width: W, height: H,
+    backgroundColor: '#1a1a2e',
+    scene: [MenuScene, GameScene, GameOverScene, LeaderboardScene],
+    parent: document.body,
+    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  });
+}
+
+boot();
