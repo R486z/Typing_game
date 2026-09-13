@@ -1,0 +1,169 @@
+# Word Drop – Translation Word List (English ↔ Slovak)
+# Format: english_word|slovenské_slovo
+# Both sides are used as prompts/answers depending on random direction (EN→SK or SK→EN)
+# Lines starting with # are ignored.
+# ── Animals ─────────────────────────────────────────────────────────────────
+dog|pes
+cat|mačka
+fish|ryba
+bird|vták
+horse|kôň
+cow|krava
+pig|prasa
+sheep|ovca
+rabbit|králik
+bear|medveď
+wolf|vlk
+lion|lev
+tiger|tiger
+elephant|slon
+monkey|opica
+snake|had
+frog|žaba
+duck|kačka
+eagle|orol
+butterfly|motýľ
+# ── Home & everyday objects ──────────────────────────────────────────────────
+house|dom
+door|dvere
+window|okno
+table|stôl
+chair|stolička
+bed|posteľ
+book|kniha
+pen|pero
+bag|taška
+key|kľúč
+clock|hodiny
+phone|telefón
+lamp|lampa
+mirror|zrkadlo
+cup|šálka
+# ── Food & drink ─────────────────────────────────────────────────────────────
+apple|jablko
+bread|chlieb
+milk|mlieko
+water|voda
+cheese|syr
+egg|vajce
+sugar|cukor
+salt|soľ
+cake|torta
+soup|polievka
+rice|ryža
+meat|mäso
+fruit|ovocie
+honey|med
+butter|maslo
+# ── Nature ───────────────────────────────────────────────────────────────────
+sun|slnko
+moon|mesiac
+star|hviezda
+rain|dážď
+snow|sneh
+wind|vietor
+tree|strom
+flower|kvet
+river|rieka
+mountain|hora
+forest|les
+sea|more
+sky|obloha
+cloud|oblak
+stone|kameň
+# ── People & family ──────────────────────────────────────────────────────────
+mother|mama
+father|otec
+sister|sestra
+brother|brat
+friend|kamarát
+teacher|učiteľ
+student|žiak
+child|dieťa
+boy|chlapec
+girl|dievča
+# ── School & learning ────────────────────────────────────────────────────────
+school|škola
+class|trieda
+lesson|hodina
+word|slovo
+number|číslo
+letter|písmeno
+question|otázka
+answer|odpoveď
+pencil|ceruzka
+paper|papier
+# ── Colours ──────────────────────────────────────────────────────────────────
+red|červená
+blue|modrá
+green|zelená
+yellow|žltá
+black|čierna
+white|biela
+orange|oranžová
+purple|fialová
+pink|ružová
+brown|hnedá
+# ── Adjectives ───────────────────────────────────────────────────────────────
+big|veľký
+small|malý
+fast|rýchly
+slow|pomalý
+good|dobrý
+bad|zlý
+hot|horúci
+cold|studený
+new|nový
+old|starý
+happy|šťastný
+sad|smutný
+tall|vysoký
+short|nízky
+clean|čistý
+# ── Verbs (infinitive) ───────────────────────────────────────────────────────
+run|bežať
+jump|skákať
+swim|plávať
+fly|lietať
+eat|jesť
+drink|piť
+sleep|spať
+read|čítať
+write|písať
+sing|spievať
+dance|tancovať
+play|hrať
+laugh|smiať
+cry|plakať
+help|pomáhať
+# ── Time ─────────────────────────────────────────────────────────────────────
+morning|ráno
+evening|večer
+night|noc
+day|deň
+week|týždeň
+year|rok
+today|dnes
+tomorrow|zajtra
+yesterday|včera
+summer|leto
+winter|zima
+spring|jar
+autumn|jeseň
+# ── Transport ────────────────────────────────────────────────────────────────
+car|auto
+bus|autobus
+train|vlak
+plane|lietadlo
+boat|loď
+bike|bicykel
+# ── Misc ─────────────────────────────────────────────────────────────────────
+love|láska
+game|hra
+ball|lopta
+city|mesto
+village|dedina
+life|život
+world|svet
+music|hudba
+sport|šport

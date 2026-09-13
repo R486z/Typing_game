@@ -1,0 +1,35 @@
+# Word Drop – Tricky Words mode (your custom vocabulary list)
+# Format: english_word|slovenské_slovo
+# Both sides used as prompts/answers – direction is random (EN→SK or SK→EN)
+# Lines starting with # are ignored.
+#
+# Add here the specific words your child is currently learning at school.
+# Example:
+#   investigate|pátrať
+#   frequently|často
+#   to visit|navštíviť
+#   immediately|okamžite
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# Add your words below:
+
+to investigate|pátrať
+invention|vynález
+curious|zvedavý
+famous|slávny
+region|oblasť
+to look for|hľadať
+virtual reality headset|súprava na virtuálnu realitu
+to chat|četovať
+to post a comment|uverejniť komentár
+to share a password|zdieľať heslo
+to observe|pozorovať
+to visit|navštíviť
+to travel|cestovať
+country|krajina
+nationality|národnosť
+always|vždy
+usually|zvyčajne
+often|často
+sometimes|niekedy
+never|nikdy
