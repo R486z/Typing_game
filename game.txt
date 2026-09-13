@@ -853,8 +853,8 @@ class MenuScene extends Phaser.Scene {
       { id: 'tricky',      label: 'Tricky Words',    sub: 'your vocab list',  col: 0x5a3a00, selCol: 0xaa6600, txtCol: '#886633', selTxtCol: '#ffcc44' },
       { id: 'typing',      label: 'Typing Drill',    sub: 'speed training',   col: 0x002266, selCol: 0x004ab5, txtCol: '#335588', selTxtCol: '#66aaff' },
       { id: 'translation', label: 'Word Translate',  sub: 'EN ↔ SK vocab',   col: 0x003322, selCol: 0x007744, txtCol: '#336655', selTxtCol: '#44ffaa' },
-      { id: 'story',       label: 'Story Mode',      sub: storyPool.length ? 'picture → word' : '🔒 add pictures',
-        col: 0x552200, selCol: 0xaa4400, txtCol: '#996644', selTxtCol: '#ff8844', locked: storyPool.length === 0 },
+      { id: 'story',       label: 'Story Mode',      sub: storyPool.length ? 'picture → word' : '(no pictures yet)',
+        col: 0x552200, selCol: 0xaa4400, txtCol: '#996644', selTxtCol: '#ff8844' },
     ];
 
     const TW = 172, TH = 58, GAP = 8;
@@ -978,7 +978,10 @@ class GameScene extends Phaser.Scene {
   buildPool() {
     if (this.gameMode === 'translation' || this.gameMode === 'tricky' || this.gameMode === 'story') {
       const source = this.gameMode === 'tricky' ? trickyWordsPool
-        : this.gameMode === 'story' ? storyPool
+        // No pictures loaded yet? Fall back to the tricky-words list so the
+        // mode is still testable — spawnStoryWord() shows a 🖼️ placeholder
+        // instead of a real image for entries that have no imageKey.
+        : this.gameMode === 'story' ? (storyPool.length ? storyPool : trickyWordsPool)
         : typingTranslationPool;
       this.transPool = Phaser.Utils.Array.Shuffle([...source]);
       this.transIdx  = 0;
@@ -1216,7 +1219,16 @@ class GameScene extends Phaser.Scene {
 
     const frame = this.add.rectangle(0, IMG / 2, IMG + 6, IMG + 6, 0x000000, 0)
       .setStrokeStyle(2, 0x334466);
-    const img = this.add.image(0, IMG / 2, pair.imageKey).setDisplaySize(IMG, IMG);
+
+    const pic = [];
+    if (pair.imageKey) {
+      pic.push(this.add.image(0, IMG / 2, pair.imageKey).setDisplaySize(IMG, IMG));
+    } else {
+      // No picture for this word yet — placeholder so the mode stays fully
+      // playable while pictures are still being added to images/story/.
+      pic.push(this.add.rectangle(0, IMG / 2, IMG, IMG, 0x1c2a3a).setStrokeStyle(1, 0x2a3a4a));
+      pic.push(this.add.text(0, IMG / 2, '🖼️', { fontSize: '40px' }).setOrigin(0.5));
+    }
 
     // one underscore per letter, triple-space between words
     const underStr = answer.split(' ').map(w => [...w].map(() => '_').join(' ')).join('   ');
@@ -1224,7 +1236,7 @@ class GameScene extends Phaser.Scene {
       fontSize: '15px', fill: '#334466', fontFamily: 'monospace',
     }).setOrigin(0.5, 0);
 
-    container.add([img, frame, underTxt]);
+    container.add([...pic, frame, underTxt]);
     const maxHalf = Math.max(IMG / 2 + 3, underTxt.width / 2);
     container.x = Phaser.Math.Clamp(container.x, maxHalf + 10, W - maxHalf - 10);
     // isTranslation reused here so the shared highlight/reset/damage logic
