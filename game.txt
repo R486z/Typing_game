@@ -7,6 +7,12 @@ const GROUND_Y     = 510;
 const MAX_HP       = 20;
 const LEVEL_UP_SEC = 30;
 
+// On-screen keyboard: defaults on for touch devices (phones/tablets), off
+// otherwise. Toggleable from the menu (e.g. for a tablet with a Bluetooth
+// keyboard attached). A plain global rather than per-scene state, so the
+// choice persists across menu <-> game <-> game-over without extra plumbing.
+let vkEnabled = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
 // 10 difficulty presets  (index = player-chosen difficulty 0..9)
 const LEVEL_CONFIG = [
   { speed:  32, interval: 5000, pool: ['L1']             }, // 0 – Calm warm-up
@@ -890,19 +896,26 @@ class MenuScene extends Phaser.Scene {
       level: this.selectedLevel, mode: this.gameMode,
     }));
 
-    // ── Leaderboard + How to Play ────────────────────────────────────────────
-    const mkSmBtn = (x, w, icon, label, target) => {
+    // ── Leaderboard + How to Play + on-screen keyboard toggle ────────────────
+    const mkSmBtn = (x, w, icon, label, onClick) => {
       const bg = this.add.rectangle(x, 462, w, 38, 0x1c2a3a)
         .setStrokeStyle(2, 0x334455).setInteractive({ useHandCursor: true });
-      this.add.text(x, 462, `${icon}  ${label}`, {
-        fontSize: '14px', fill: '#aabbcc', fontFamily: 'Arial, sans-serif',
+      const txt = this.add.text(x, 462, `${icon}  ${label}`, {
+        fontSize: '13px', fill: '#aabbcc', fontFamily: 'Arial, sans-serif',
       }).setOrigin(0.5);
       bg.on('pointerover', () => bg.setFillStyle(0x263444));
       bg.on('pointerout',  () => bg.setFillStyle(0x1c2a3a));
-      bg.on('pointerdown', () => this.scene.start(target));
+      bg.on('pointerdown', onClick);
+      return { bg, txt };
     };
-    mkSmBtn(W / 2 - 130, 220, '🏆', 'LEADERBOARD', 'Leaderboard');
-    mkSmBtn(W / 2 + 110, 180, '❓', 'HOW TO PLAY',  'HowToPlay');
+    mkSmBtn(W / 2 - 260, 240, '🏆', 'LEADERBOARD', () => this.scene.start('Leaderboard'));
+    mkSmBtn(W / 2 + 10,  200, '❓', 'HOW TO PLAY',  () => this.scene.start('HowToPlay'));
+
+    this.vkBtn = mkSmBtn(W / 2 + 260, 210, '⌨️', '', () => {
+      vkEnabled = !vkEnabled;
+      this.refreshVk();
+    });
+    this.refreshVk();
 
     // Keyboard: 0-9 shortcut
     this.input.keyboard.on('keydown', (e) => {
@@ -911,6 +924,13 @@ class MenuScene extends Phaser.Scene {
 
     this.refreshLevel();
     this.refreshMode();
+  }
+
+  refreshVk() {
+    const on = vkEnabled;
+    this.vkBtn.txt.setText(`⌨️  KEYBOARD: ${on ? 'ON' : 'OFF'}`);
+    this.vkBtn.txt.setStyle({ fill: on ? '#66ffaa' : '#778899' });
+    this.vkBtn.bg.setStrokeStyle(2, on ? 0x2a6a4a : 0x334455);
   }
 
   refreshLevel() {
@@ -966,13 +986,20 @@ class GameScene extends Phaser.Scene {
   /* ── helpers ── */
   getEffectiveCfg(level) {
     const b = LEVEL_CONFIG[level];
+    let cfg;
     if (this.gameMode === 'translation' || this.gameMode === 'tricky' || this.gameMode === 'story') {
       const kidMul = this.kidMode ? 2 : 1;
-      return { speed: b.speed * 0.7 / kidMul, interval: b.interval * 2 * kidMul, pool: b.pool };
+      cfg = { speed: b.speed * 0.7 / kidMul, interval: b.interval * 2 * kidMul, pool: b.pool };
+    } else {
+      cfg = this.kidMode
+        ? { speed: b.speed * 0.5, interval: b.interval * 2, pool: b.pool }
+        : b;
     }
-    return this.kidMode
-      ? { speed: b.speed * 0.5, interval: b.interval * 2, pool: b.pool }
-      : b;
+    // The on-screen keyboard eats vertical space, shortening the fall
+    // distance. Scale speed down proportionally so words take about the
+    // same TIME to land as on desktop, instead of the shrunken screen
+    // silently making the game harder.
+    return this.vkOn ? { ...cfg, speed: cfg.speed * (this.groundY / GROUND_Y) } : cfg;
   }
 
   buildPool() {
@@ -1002,6 +1029,9 @@ class GameScene extends Phaser.Scene {
 
   /* ── create ── */
   create() {
+    this.vkOn    = vkEnabled;
+    this.groundY = this.vkOn ? 360 : GROUND_Y; // shrink play area to make room for the on-screen keyboard
+
     this.hp           = MAX_HP;
     this.score        = 0;
     this.typed        = '';
@@ -1021,7 +1051,7 @@ class GameScene extends Phaser.Scene {
     drawGrid(this, 0x1e2640, 0.4);
 
     /* Ground line */
-    this.add.rectangle(W / 2, GROUND_Y + 2, W, 4, 0xff3333).setDepth(1);
+    this.add.rectangle(W / 2, this.groundY + 2, W, 4, 0xff3333).setDepth(1);
 
     /* ── HP bar (top-left) ── */
     this.hpGfx = this.add.graphics().setDepth(3);
@@ -1092,19 +1122,65 @@ class GameScene extends Phaser.Scene {
       else this.pauseGame();
     });
 
-    /* ── Input bar (bottom) ── */
-    this.add.rectangle(W / 2, H - 27, W, 54, 0x0d1020).setDepth(1);
-    this.add.rectangle(W / 2, H - 53, W, 2,  0x1e2e50).setDepth(2);
-    this.inputTxt = this.add.text(W / 2, H - 27, '', {
-      fontSize: '28px', fill: '#00ff88', fontFamily: 'monospace',
+    /* ── Input bar (bottom) + optional on-screen keyboard ── */
+    const barTop = this.groundY + 36;
+    this.add.rectangle(W / 2, (barTop + H) / 2, W, H - barTop, 0x0d1020).setDepth(1);
+    this.add.rectangle(W / 2, barTop, W, 2, 0x1e2e50).setDepth(2);
+
+    const inputY = this.vkOn ? barTop + 20 : H - 27;
+    this.inputTxt = this.add.text(W / 2, inputY, '', {
+      fontSize: this.vkOn ? '22px' : '28px', fill: '#00ff88', fontFamily: 'monospace',
       stroke: '#003322', strokeThickness: 2,
     }).setOrigin(0.5).setDepth(3);
+
+    if (this.vkOn) this.buildVirtualKeyboard(barTop + 34);
 
     /* Keyboard */
     this.input.keyboard.on('keydown', this.onKey, this);
 
     /* Countdown 3-2-1-GO!, then begin play */
     this.startCountdown(() => this.beginPlay());
+  }
+
+  // On-screen QWERTY keyboard (no diacritics needed — normalize() already
+  // accepts e.g. "macka" for "mačka"). Both this and the physical keyboard
+  // funnel through pressLetter()/pressBackspace() so the matching/scoring
+  // logic only lives in one place.
+  buildVirtualKeyboard(topY) {
+    const GAP = 6, KEY_H = 46;
+    const KEY_W = Math.floor((W - 32 - 9 * GAP) / 10); // sized off the 10-key top row
+
+    const rows = [
+      [...'qwertyuiop'].map(ch => ({ label: ch.toUpperCase(), w: KEY_W, fn: () => this.pressLetter(ch) })),
+      [...'asdfghjkl'].map(ch => ({ label: ch.toUpperCase(), w: KEY_W, fn: () => this.pressLetter(ch) })),
+      [...'zxcvbnm'].map(ch => ({ label: ch.toUpperCase(), w: KEY_W, fn: () => this.pressLetter(ch) }))
+        .concat([{ label: '⌫', w: KEY_W * 1.7, fn: () => this.pressBackspace(), fill: 0x3a1c1c }]),
+    ];
+
+    const makeKey = (x, y, spec) => {
+      const fill = spec.fill || 0x1c2a3a;
+      const bg = this.add.rectangle(x, y, spec.w, KEY_H, fill)
+        .setStrokeStyle(1, 0x334455).setDepth(6).setInteractive({ useHandCursor: true });
+      this.add.text(x, y, spec.label, {
+        fontSize: '18px', fill: '#dde8ff', fontFamily: '"Arial Black", Arial, sans-serif',
+      }).setOrigin(0.5).setDepth(7);
+      bg.on('pointerdown', () => {
+        if (this.dead || this.frozen) return;
+        bg.setFillStyle(0x33475e); spec.fn();
+      });
+      bg.on('pointerup',   () => bg.setFillStyle(fill));
+      bg.on('pointerout',  () => bg.setFillStyle(fill));
+    };
+
+    rows.forEach((row, r) => {
+      const y = topY + r * (KEY_H + GAP);
+      const rowWidth = row.reduce((s, k) => s + k.w, 0) + (row.length - 1) * GAP;
+      let x = (W - rowWidth) / 2 + row[0].w / 2;
+      row.forEach((spec, i) => {
+        makeKey(x, y, spec);
+        if (i < row.length - 1) x += spec.w / 2 + GAP + row[i + 1].w / 2;
+      });
+    });
   }
 
   restartSpawnTimer(interval) {
@@ -1314,18 +1390,32 @@ class GameScene extends Phaser.Scene {
   /* ── Key handler ── */
   onKey(e) {
     if (this.dead || this.frozen) return;
-    if (e.key === 'Backspace') { this.typed = this.typed.slice(0, -1); this.refreshInput(); this.highlight(); return; }
-    if (e.key === 'Escape')    { this.typed = '';                       this.refreshInput(); this.highlight(); return; }
+    if (e.key === 'Backspace') { this.pressBackspace(); return; }
+    if (e.key === 'Escape')    { this.typed = ''; this.refreshInput(); this.highlight(); return; }
     // Allow basic Latin letters + diacritics (for Slovak in translation mode)
     if (e.key.length !== 1 || !/^\p{L}$/u.test(e.key)) return;
+    this.pressLetter(e.key);
+  }
 
-    const cand = this.typed + e.key.toLowerCase();
+  // Shared by the physical keyboard (onKey) and the on-screen virtual
+  // keyboard (buildVirtualKeyboard) — the matching/scoring logic only
+  // lives here, so both input methods behave identically.
+  pressLetter(letter) {
+    if (this.dead || this.frozen) return;
+    const cand = this.typed + letter.toLowerCase();
     if (!this.words.some(w => normalize(w.word).startsWith(normalize(cand)))) { this.typed = cand; this.flashTypo(); }
     else { this.typed = cand; }
 
     const exact = this.words.find(w => normalize(w.word) === normalize(this.typed));
     if (exact) { this.destroyWord(exact); this.typed = ''; }
 
+    this.refreshInput();
+    this.highlight();
+  }
+
+  pressBackspace() {
+    if (this.dead || this.frozen) return;
+    this.typed = this.typed.slice(0, -1);
     this.refreshInput();
     this.highlight();
   }
@@ -1427,7 +1517,7 @@ class GameScene extends Phaser.Scene {
     const dt = delta / 1000, lost = [];
     for (const fw of this.words) {
       fw.obj.y += this.fallSpeed * dt;
-      if (fw.obj.y >= GROUND_Y) lost.push(fw);
+      if (fw.obj.y >= this.groundY) lost.push(fw);
     }
 
     if (lost.length) {
@@ -1438,7 +1528,7 @@ class GameScene extends Phaser.Scene {
         const already = normW.startsWith(normT) ? normT.length : 0;
         const dmg     = Math.max(1, normW.length - already);
         this.hp = Math.max(0, this.hp - dmg);
-        const fl = this.add.rectangle(fw.obj.x, GROUND_Y + 2, 200, 6, 0xff6622).setDepth(5);
+        const fl = this.add.rectangle(fw.obj.x, this.groundY + 2, 200, 6, 0xff6622).setDepth(5);
         this.time.delayedCall(240, () => fl.destroy());
         fw.obj.destroy();
         this.words = this.words.filter(w => w !== fw);
@@ -1555,7 +1645,7 @@ class GameOverScene extends Phaser.Scene {
       fontSize: '26px', fill: '#ffffff', fontFamily: 'monospace',
     }).setOrigin(0.5));
 
-    push(this.add.text(W / 2, 283, 'Press ENTER to confirm  (max 16 characters)', {
+    push(this.add.text(W / 2, 283, vkEnabled ? 'Tap ✓ OK to confirm  (max 16 characters)' : 'Press ENTER to confirm  (max 16 characters)', {
       fontSize: '12px', fill: '#3a4a5a', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5));
 
@@ -1565,6 +1655,56 @@ class GameOverScene extends Phaser.Scene {
     });
 
     this.input.keyboard.on('keydown', this.onNameKey, this);
+
+    if (vkEnabled) this.buildNameKeyboard();
+  }
+
+  // On-screen keyboard for entering a leaderboard name on touch devices —
+  // same visual style as GameScene's virtual keyboard, plus SPACE/✓ OK.
+  // Elements are pushed into nameElems so they hide along with the rest of
+  // the name-entry UI once a name is confirmed.
+  buildNameKeyboard() {
+    const GAP = 6, KEY_H = 42, topY = 316;
+    const KEY_W = Math.floor((W - 32 - 9 * GAP) / 10);
+
+    const addChar = ch => {
+      if (this.nameInput.length < 16) { this.nameInput += ch; this.refreshNameDisplay(); }
+    };
+    const backspace = () => { this.nameInput = this.nameInput.slice(0, -1); this.refreshNameDisplay(); };
+
+    const rows = [
+      [...'qwertyuiop'].map(ch => ({ label: ch.toUpperCase(), w: KEY_W, fn: () => addChar(ch) })),
+      [...'asdfghjkl'].map(ch => ({ label: ch.toUpperCase(), w: KEY_W, fn: () => addChar(ch) })),
+      [...'zxcvbnm'].map(ch => ({ label: ch.toUpperCase(), w: KEY_W, fn: () => addChar(ch) }))
+        .concat([{ label: '⌫', w: KEY_W * 1.7, fn: backspace, fill: 0x3a1c1c }]),
+      [
+        { label: 'SPACE', w: KEY_W * 4.2, fn: () => addChar(' ') },
+        { label: '✓ OK',  w: KEY_W * 2.6, fn: () => { if (this.nameInput.length) this.commitName(); }, fill: 0x0a4a2a },
+      ],
+    ];
+
+    const makeKey = (x, y, spec) => {
+      const fill = spec.fill || 0x1c2a3a;
+      const bg = this.add.rectangle(x, y, spec.w, KEY_H, fill)
+        .setStrokeStyle(1, 0x334455).setInteractive({ useHandCursor: true });
+      const txt = this.add.text(x, y, spec.label, {
+        fontSize: '16px', fill: '#dde8ff', fontFamily: '"Arial Black", Arial, sans-serif',
+      }).setOrigin(0.5);
+      this.nameElems.push(bg, txt);
+      bg.on('pointerdown', () => { bg.setFillStyle(0x33475e); spec.fn(); });
+      bg.on('pointerup',   () => bg.setFillStyle(fill));
+      bg.on('pointerout',  () => bg.setFillStyle(fill));
+    };
+
+    rows.forEach((row, r) => {
+      const y = topY + r * (KEY_H + GAP);
+      const rowWidth = row.reduce((s, k) => s + k.w, 0) + (row.length - 1) * GAP;
+      let x = (W - rowWidth) / 2 + row[0].w / 2;
+      row.forEach((spec, i) => {
+        makeKey(x, y, spec);
+        if (i < row.length - 1) x += spec.w / 2 + GAP + row[i + 1].w / 2;
+      });
+    });
   }
 
   onNameKey(e) {
@@ -1586,7 +1726,10 @@ class GameOverScene extends Phaser.Scene {
     if (this.cursorEv) { this.cursorEv.remove(); this.cursorEv = null; }
     this.input.keyboard.off('keydown', this.onNameKey, this);
     addToLeaderboard(this.nameInput, this.finalScore, this.startLevel, this.reachedLevel, this.kidMode, this.gameMode);
-    for (const o of this.nameElems) o.setVisible(false);
+    for (const o of this.nameElems) {
+      if (typeof o.disableInteractive === 'function') o.disableInteractive();
+      o.setVisible(false);
+    }
     this.nameElems = [];
     this.buildLeaderboard(this.nameInput);
     this.buildButtons();
@@ -1841,6 +1984,7 @@ class HowToPlayScene extends Phaser.Scene {
     line(130, 'Level increases every 30 seconds — faster words, shorter intervals.');
     line(148, 'Backspace = fix last letter  ·  Esc = clear input  ·  ⏸ = pause');
     line(166, 'No diacritics needed — typing "macka" is accepted for "mačka". ✓', '#556677');
+    line(180, 'Phone/tablet: on-screen keyboard shows automatically — toggle it in the menu.', '#556677');
 
     section(196, 'GAME MODES');
 
