@@ -649,6 +649,52 @@ async function loadWords() {
   }
 }
 
+/* ── Global leaderboard (Firebase Realtime Database) ──────────────────────────
+   Local (localStorage) storage stays exactly as before — it's instant, works
+   offline, and drives the "did you make top 10?" check at game-over. On top
+   of that, every new score is also pushed to Firebase, and the leaderboard
+   screens fetch the shared global list once it's available. If Firebase is
+   unreachable (offline, blocked, config missing) everything silently falls
+   back to the local-only list — the game never breaks without internet. */
+const firebaseConfig = {
+  apiKey: "AIzaSyAidkBnbPdGTHPVaGlTbfuuzHaEpJo4cUI",
+  authDomain: "typing-game-68d33.firebaseapp.com",
+  databaseURL: "https://typing-game-68d33-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "typing-game-68d33",
+  storageBucket: "typing-game-68d33.firebasestorage.app",
+  messagingSenderId: "263661267423",
+  appId: "1:263661267423:web:3621df583f14601b5ebc6a",
+};
+let fbDb = null;
+try {
+  if (window.firebase) {
+    firebase.initializeApp(firebaseConfig);
+    fbDb = firebase.database();
+  }
+} catch (err) { console.warn('Firebase unavailable — using local-only leaderboard.', err); }
+
+// Fetches up to 100 highest global scores, sorted descending. Calls
+// cb(null) on any failure (offline, Firebase down, etc.) so callers can
+// fall back to the local list without special-casing errors themselves.
+function fetchGlobalLeaderboard(cb) {
+  if (!fbDb) { cb(null); return; }
+  fbDb.ref('leaderboard').orderByChild('score').limitToLast(100).once('value')
+    .then(snap => {
+      const arr = [];
+      snap.forEach(child => arr.push(child.val()));
+      arr.sort((a, b) => b.score - a.score);
+      cb(arr);
+    })
+    .catch(err => { console.warn('Global leaderboard fetch failed:', err); cb(null); });
+}
+
+// Fire-and-forget — never blocks or breaks gameplay if it fails.
+function pushToGlobalLeaderboard(entry) {
+  if (!fbDb) return;
+  try { fbDb.ref('leaderboard').push({ ...entry, ts: Date.now() }); }
+  catch (err) { console.warn('Global leaderboard write failed:', err); }
+}
+
 /* ── Leaderboard (localStorage) ────────────────────────────────────────────── */
 const LB_KEY = 'wordDrop_lb_v1';
 const LB_MAX = 100; // keep more than 10 so per-mode leaderboards still have entries
@@ -664,16 +710,18 @@ function isTopTen(score) {
   return lb.length < 10 || score > lb[9].score;
 }
 function addToLeaderboard(name, score, startLevel, reachedLevel, kid, mode) {
-  const lb = getLeaderboard();
-  lb.push({
+  const entry = {
     name: (name.trim() || 'Anonymous').slice(0, 16),
     score, startLevel, reachedLevel, kid: !!kid,
     mode: mode || 'legacy',
     date: new Date().toLocaleDateString(),
-  });
+  };
+  const lb = getLeaderboard();
+  lb.push(entry);
   lb.sort((a, b) => b.score - a.score);
   if (lb.length > LB_MAX) lb.splice(LB_MAX);
   saveLeaderboard(lb);
+  pushToGlobalLeaderboard(entry);
 }
 
 /* ── Audio feedback (Web Audio API – no external files needed) ──────────────── */
@@ -1737,30 +1785,55 @@ class GameOverScene extends Phaser.Scene {
 
   /* ── Leaderboard table ── */
   buildLeaderboard(highlightName) {
-    const lb = getLeaderboard().slice(0, 10);
-    const C  = { rank: 90, name: 118, score: 420, level: 470, mode: 555, date: 700 };
+    this._lbHighlight = highlightName;
+    this.lbRowElems = [];
 
     this.add.text(W / 2, 191, '— TOP  10  LEADERBOARD —', {
       fontSize: '12px', fill: '#2a3a4a',
       fontFamily: 'Arial, sans-serif', letterSpacing: 3,
     }).setOrigin(0.5);
 
+    this.lbSourceBadge = this.add.text(700, 191, '📱 local', {
+      fontSize: '10px', fill: '#445566', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(1, 0.5);
+
     const hY  = 207;
     const hSt = { fontSize: '11px', fill: '#334455', fontFamily: 'Arial, sans-serif' };
-    this.add.text(C.rank,  hY, '#',     hSt).setOrigin(0.5, 0);
-    this.add.text(C.name,  hY, 'NAME',  hSt).setOrigin(0, 0);
-    this.add.text(C.score, hY, 'SCORE', hSt).setOrigin(1, 0);
-    this.add.text(C.level, hY, 'LVL',   hSt).setOrigin(0.5, 0);
-    this.add.text(C.mode,  hY, 'MODE',  hSt).setOrigin(0.5, 0);
-    this.add.text(C.date,  hY, 'DATE',  hSt).setOrigin(1, 0);
+    this.add.text(90,  hY, '#',     hSt).setOrigin(0.5, 0);
+    this.add.text(118, hY, 'NAME',  hSt).setOrigin(0, 0);
+    this.add.text(420, hY, 'SCORE', hSt).setOrigin(1, 0);
+    this.add.text(470, hY, 'LVL',   hSt).setOrigin(0.5, 0);
+    this.add.text(555, hY, 'MODE',  hSt).setOrigin(0.5, 0);
+    this.add.text(700, hY, 'DATE',  hSt).setOrigin(1, 0);
     this.add.rectangle(W / 2, hY + 16, 660, 1, 0x1e2e3e);
 
+    // Local data renders immediately (no waiting on the network); it's
+    // replaced by the shared global list the moment it arrives, or stays
+    // as-is if Firebase can't be reached (offline, etc).
+    this._renderLbRows(getLeaderboard(), false);
+    fetchGlobalLeaderboard(arr => { if (arr) this._renderLbRows(arr, true); });
+  }
+
+  _renderLbRows(fullList, isGlobal) {
+    for (const o of this.lbRowElems) o.destroy();
+    this.lbRowElems = [];
+    const push = o => { this.lbRowElems.push(o); return o; };
+
+    this.lbSourceBadge.setText(isGlobal ? '🌍 global' : '📱 local')
+      .setStyle({ fill: isGlobal ? '#44ffaa' : '#445566' });
+
+    const lb = fullList.slice(0, 10);
+    const hY = 207;
+    const C  = { rank: 90, name: 118, score: 420, level: 470, mode: 555, date: 700 };
+
     if (!lb.length) {
-      this.add.text(W / 2, hY + 36, 'No entries yet — you will be the first!', {
+      push(this.add.text(W / 2, hY + 36, 'No entries yet — you will be the first!', {
         fontSize: '14px', fill: '#334455', fontFamily: 'Arial, sans-serif',
-      }).setOrigin(0.5); return;
+      }).setOrigin(0.5));
+      return;
     }
 
+    const highlightName = this._lbHighlight;
     const medals = ['#ffd700', '#c0c0c0', '#cd7f32'];
     lb.forEach((e, i) => {
       const y     = hY + 24 + i * 22;
@@ -1769,8 +1842,8 @@ class GameOverScene extends Phaser.Scene {
         && e.score === this.finalScore
         && i === lb.findIndex(x => x.name === e.name && x.score === e.score);
 
-      if (isNew) this.add.rectangle(W / 2, y + 9, 660, 21, 0x1a3a1a).setAlpha(0.8);
-      else if (i < 3) this.add.rectangle(W / 2, y + 9, 660, 21, 0x1a2234).setAlpha(0.5);
+      if (isNew) push(this.add.rectangle(W / 2, y + 9, 660, 21, 0x1a3a1a).setAlpha(0.8));
+      else if (i < 3) push(this.add.rectangle(W / 2, y + 9, 660, 21, 0x1a2234).setAlpha(0.5));
 
       const col   = isNew ? '#88ff88' : i < 3 ? medals[i] : '#667788';
       const rank  = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
@@ -1780,13 +1853,13 @@ class GameOverScene extends Phaser.Scene {
       const lvl   = e.kid ? `${lvlBase} 👶` : lvlBase;
       const meta  = modeMeta(e.mode);
 
-      this.add.text(C.rank,  y, rank,              rs).setOrigin(0.5, 0);
-      this.add.text(C.name,  y, e.name,            rs).setOrigin(0, 0);
-      this.add.text(C.score, y, `${e.score}`,      rs).setOrigin(1, 0);
-      this.add.text(C.level, y, lvl,               rs).setOrigin(0.5, 0);
-      this.add.text(C.mode,  y, meta.short, { fontSize: '11px', fill: meta.color, fontFamily: 'Arial, sans-serif' }).setOrigin(0.5, 0);
-      this.add.text(C.date,  y, e.date || '',      { fontSize: '11px', fill: '#2a3a4a', fontFamily: 'Arial, sans-serif' }).setOrigin(1, 0);
-      if (isNew) this.add.text(C.date + 16, y, '◄ new', { fontSize: '11px', fill: '#44ff88', fontFamily: 'Arial, sans-serif' }).setOrigin(0, 0);
+      push(this.add.text(C.rank,  y, rank,              rs).setOrigin(0.5, 0));
+      push(this.add.text(C.name,  y, e.name,            rs).setOrigin(0, 0));
+      push(this.add.text(C.score, y, `${e.score}`,      rs).setOrigin(1, 0));
+      push(this.add.text(C.level, y, lvl,               rs).setOrigin(0.5, 0));
+      push(this.add.text(C.mode,  y, meta.short, { fontSize: '11px', fill: meta.color, fontFamily: 'Arial, sans-serif' }).setOrigin(0.5, 0));
+      push(this.add.text(C.date,  y, e.date || '',      { fontSize: '11px', fill: '#2a3a4a', fontFamily: 'Arial, sans-serif' }).setOrigin(1, 0));
+      if (isNew) push(this.add.text(C.date + 16, y, '◄ new', { fontSize: '11px', fill: '#44ff88', fontFamily: 'Arial, sans-serif' }).setOrigin(0, 0));
     });
   }
 
@@ -1812,8 +1885,9 @@ class LeaderboardScene extends Phaser.Scene {
   constructor() { super('Leaderboard'); }
 
   create() {
-    this.filterMode = 'all'; // 'all' | 'tricky' | 'typing' | 'translation'
+    this.filterMode = 'all'; // 'all' | 'tricky' | 'typing' | 'translation' | 'story'
     this.tableElems = [];
+    this.globalData = null; // null until the shared Firebase list arrives (or fails)
 
     this.add.rectangle(W / 2, H / 2, W, H, 0x0d0d1a);
     drawGrid(this, 0x141428, 0.6);
@@ -1823,6 +1897,10 @@ class LeaderboardScene extends Phaser.Scene {
       fontFamily: '"Arial Black", Arial, sans-serif',
       stroke: '#443300', strokeThickness: 6,
     }).setOrigin(0.5);
+
+    this.sourceBadge = this.add.text(W - 16, 18, '📱 local', {
+      fontSize: '11px', fill: '#556677', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(1, 0.5);
 
     /* ── Filter tabs: Overall + one per game mode ─────────────────────────── */
     this.tabCfg = [
@@ -1851,6 +1929,13 @@ class LeaderboardScene extends Phaser.Scene {
     this.refreshTabs();
 
     this.renderTable();
+    fetchGlobalLeaderboard(arr => {
+      if (arr) {
+        this.globalData = arr;
+        this.sourceBadge.setText('🌍 global').setStyle({ fill: '#44ffaa' });
+        this.renderTable();
+      }
+    });
 
     /* Back button */
     const back = this.add.rectangle(W / 2 - 120, 562, 200, 48, 0x1e2a3a)
@@ -1862,11 +1947,12 @@ class LeaderboardScene extends Phaser.Scene {
     back.on('pointerout',  () => back.setFillStyle(0x1e2a3a));
     back.on('pointerdown', () => this.scene.start('Menu'));
 
-    /* Clear button (two-click confirm) — clears ALL modes */
+    /* Clear button (two-click confirm) — clears this device's LOCAL cache only.
+       The shared global leaderboard is intentionally not wipeable from here. */
     this.clearConfirm = false;
     const clrBg = this.add.rectangle(W / 2 + 120, 562, 200, 48, 0x2a1a1a)
       .setStrokeStyle(2, 0x442222).setInteractive({ useHandCursor: true });
-    this.clrTxt = this.add.text(W / 2 + 120, 562, 'CLEAR ALL', {
+    this.clrTxt = this.add.text(W / 2 + 120, 562, 'CLEAR LOCAL', {
       fontSize: '18px', fill: '#884444', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5);
     clrBg.on('pointerover', () => clrBg.setFillStyle(0x3a2020));
@@ -1897,7 +1983,7 @@ class LeaderboardScene extends Phaser.Scene {
     this.tableElems = [];
     const push = o => { this.tableElems.push(o); return o; };
 
-    const all = getLeaderboard();
+    const all = this.globalData || getLeaderboard();
     const lb  = (this.filterMode === 'all'
       ? all
       : all.filter(e => (e.mode || 'legacy') === this.filterMode)
