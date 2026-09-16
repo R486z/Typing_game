@@ -2216,15 +2216,17 @@ class HowToPlayScene extends Phaser.Scene {
       wordWrap: { width: W - 104 },
     }).setOrigin(0, 0);
 
-    section(76, 'BASICS');
-    line(94,  'Words fall from the top — type them before they hit the ground.');
-    line(112, 'Each missed word costs HP equal to its letter count. Lose all HP → game over.');
-    line(130, 'Level increases every 30 seconds — faster words, shorter intervals.');
-    line(148, 'Backspace = fix last letter  ·  Esc = clear input  ·  ⏸ = pause');
-    line(166, 'No diacritics needed — typing "macka" is accepted for "mačka". ✓', '#556677');
-    line(180, 'Phone/tablet: on-screen keyboard shows automatically — toggle it in the menu.', '#556677');
+    section(70, 'BASICS');
+    line(90,  'Words fall from the top — type them before they hit the ground.');
+    line(104, 'Each missed word costs HP equal to its letter count. Lose all HP → game over.');
+    line(118, 'Level increases every 30 seconds — faster words, shorter intervals.');
+    line(132, 'Backspace = fix last letter  ·  Esc = clear input  ·  ⏸ = pause');
+    line(146, 'No diacritics needed — typing "macka" is accepted for "mačka". ✓', '#556677');
+    line(160, 'Missed a word? Its answer flashes above the ground for a moment so you can learn it.', '#556677');
+    line(174, 'Phone/tablet: on-screen keyboard shows automatically — toggle it in the menu.', '#556677');
+    line(188, '🌍 Leaderboard is shared online — falls back to your own device if you\'re offline.', '#556677');
 
-    section(196, 'GAME MODES');
+    section(208, 'GAME MODES');
 
     const modeRow = (y, icon, col, name, desc) => {
       this.add.rectangle(50, y + 10, 14, 14, col).setOrigin(0, 0.5);
@@ -2238,21 +2240,21 @@ class HowToPlayScene extends Phaser.Scene {
       }).setOrigin(0, 0);
     };
 
-    modeRow(214, '🎯', 0xaa6600, 'Tricky Words',
-      'Your own vocabulary, split into units (tricky_words.js, nationality.txt). Pick a unit, then Translate or Story Mode.');
-    modeRow(258, '🎲', 0x004ab5, 'Random Words',
-      'Built-in word lists. Typing = falling English words, speed training. Translate = common EN↔SK vocabulary, random direction.');
-    modeRow(302, '🟢', 0x007744, 'Translate (either category)',
-      'A word appears in EN or SK — type the translation. Same mechanic, just a different word list underneath.');
-    modeRow(346, '🟠', 0xaa4400, 'Story Mode',
-      'A picture falls instead of text — type its English name. Uses whichever Tricky Words unit has matching pictures in images/story/.');
+    modeRow(226, '🎯', 0xaa6600, 'Tricky Words',
+      'Your own vocabulary — pick a unit (Unit 0 words, Nationalities, more to come), then Translate or Story Mode.');
+    modeRow(274, '🎲', 0x004ab5, 'Random Words',
+      'Built-in word lists — Typing (speed drill) or Translate (EN↔SK vocabulary).');
+    modeRow(322, '🟢', 0x007744, 'Translate mechanic',
+      'A word (or picture) prompt appears — type the matching answer. Same mechanic everywhere, just a different list underneath.');
+    modeRow(370, '🟠', 0xaa4400, 'Story Mode',
+      'A picture falls instead of text — type its English name. Needs matching pictures in images/story/.');
 
     // separator
-    this.add.rectangle(W / 2, 398, 640, 1, 0x1e2e3e);
+    this.add.rectangle(W / 2, 420, 640, 1, 0x1e2e3e);
 
-    line(408, 'Edit tricky_words.js / nationality.txt to add your own vocabulary. Format: english|slovensky', '#445566');
-    line(424, 'For Story Mode, drop a picture named after the English word into images/story/ (.jpg or .png, e.g. apple.png).', '#445566');
-    line(440, 'Save the file(s) and press F5 to reload the game.', '#445566');
+    line(430, 'Edit tricky_words.js / nationality.txt to add your own vocabulary (english|slovensky, or country|nationality).', '#445566');
+    line(446, 'For Story Mode, drop a picture named after the English word into images/story/ (.jpg or .png, e.g. apple.png).', '#445566');
+    line(462, 'Save the file(s) and press F5 to reload the game.', '#445566');
 
     // Back button
     const back = makeButton(this, W / 2, 520, 220, 46, 0x1e2a3a, '← BACK TO MENU', 18);
