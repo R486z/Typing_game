@@ -62,7 +62,7 @@ const MENU_TREE = {
     items: [
       { mechanic: 'translation', unit: 'Unit 0 words',  label: 'Translate',  sub: 'Unit 0 words' },
       { mechanic: 'story',       unit: 'Unit 0 words',  label: 'Story Mode', sub: 'Unit 0 words' },
-      { mechanic: 'translation', unit: 'Nationalities', label: 'Translate',  sub: 'Nationalities' },
+      { mechanic: 'translation', unit: 'Nationalities', label: 'Nationalities', sub: 'Unit 0' },
     ],
   },
   random: {
@@ -80,6 +80,16 @@ const MENU_TREE = {
 function lbModeFor(mechanic, unit) {
   if (mechanic === 'translation') return unit ? 'tricky' : 'translation';
   return mechanic; // 'typing' | 'story'
+}
+
+// The little "EN → SK" tag shown above a falling word in Translation mode.
+// Most units really are English/Slovak, but a unit can override both sides
+// here (e.g. Nationalities is Country/Nationality, not EN/SK).
+const UNIT_LABELS = {
+  'Nationalities': { left: 'Country', right: 'Nationality' },
+};
+function unitSideLabels(unit) {
+  return UNIT_LABELS[unit] || { left: 'EN', right: 'SK' };
 }
 
 // Turns an English answer into the filename convention used under images/story/.
@@ -681,8 +691,8 @@ async function loadWords() {
       if (pairs.length) trickyUnits[unitName] = pairs;
     }
   }
-  // "Nationalities" unit — its own .txt file (same en|sk format), fetched
-  // separately so it's easy to edit without touching tricky_words.js.
+  // "Nationalities" unit — its own .txt file (Country|Nationality format),
+  // fetched separately so it's easy to edit without touching tricky_words.js.
   try {
     const r = await fetch('nationality.txt');
     if (!r.ok) throw 0;
@@ -691,12 +701,14 @@ async function loadWords() {
     trickyUnits['Nationalities'] = pairs;
   } catch {
     trickyUnits['Nationalities'] = [
-      { en: 'american', sk: 'američan' }, { en: 'british', sk: 'brit' },
-      { en: 'slovak',   sk: 'slovák' },   { en: 'czech',   sk: 'čech' },
-      { en: 'german',   sk: 'nemec' },    { en: 'french',  sk: 'francúz' },
-      { en: 'italian',  sk: 'talian' },   { en: 'spanish', sk: 'španiel' },
-      { en: 'polish',   sk: 'poliak' },   { en: 'russian', sk: 'rus' },
-      { en: 'japanese', sk: 'japonec' },  { en: 'chinese', sk: 'čínan' },
+      { en: 'greece', sk: 'greek' }, { en: 'thailand', sk: 'thai' },
+      { en: 'the united states of america', sk: 'american' },
+      { en: 'new zealand', sk: 'new zealander' }, { en: 'india', sk: 'indian' },
+      { en: 'kenya', sk: 'kenyan' }, { en: 'the united kingdom', sk: 'british' },
+      { en: 'brazil', sk: 'brazilian' }, { en: 'slovakia', sk: 'slovak' },
+      { en: 'hungary', sk: 'hungarian' }, { en: 'poland', sk: 'polish' },
+      { en: 'ukraine', sk: 'ukrainian' }, { en: 'czech republic', sk: 'czech' },
+      { en: 'austria', sk: 'austrian' },
     ];
   }
 }
@@ -812,6 +824,12 @@ function playError() {
 /* ── Diacritic-insensitive comparison ──────────────────────────────────────── */
 function normalize(s) {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, '');
+}
+
+// Capitalizes the first letter of every word — used only for the "what you
+// missed" recap text so e.g. "the united kingdom" reads as "The United Kingdom".
+function capWords(s) {
+  return s.replace(/\b\p{L}/gu, c => c.toUpperCase());
 }
 
 /* ── Shared grid background helper ─────────────────────────────────────────── */
@@ -1430,7 +1448,7 @@ class GameScene extends Phaser.Scene {
       }
     ).setOrigin(0.5, 0).setDepth(4);
     obj.x = Phaser.Math.Clamp(obj.x, obj.width / 2 + 8, W - obj.width / 2 - 8);
-    this.words.push({ obj, word });
+    this.words.push({ obj, word, missedLabel: capWords(word) });
   }
 
   // Story mode: a picture falls instead of a text prompt. The answer is always
@@ -1475,7 +1493,10 @@ class GameScene extends Phaser.Scene {
     container.x = Phaser.Math.Clamp(container.x, maxHalf + 10, W - maxHalf - 10);
     // isTranslation reused here so the shared highlight/reset/damage logic
     // (which only knows about "container + underTxt" words) works unchanged.
-    this.words.push({ obj: container, word: answer, pairEN: pair.en, underTxt, isTranslation: true });
+    this.words.push({
+      obj: container, word: answer, pairEN: pair.en, underTxt, isTranslation: true,
+      missedLabel: `${capWords(pair.en)} → ${capWords(pair.sk)}`,
+    });
   }
 
   spawnTranslationWord() {
@@ -1492,7 +1513,8 @@ class GameScene extends Phaser.Scene {
     const enToSk  = Math.random() < 0.5;
     const prompt  = enToSk ? pair.en : pair.sk;
     const answer  = enToSk ? pair.sk : pair.en;
-    const label   = enToSk ? 'EN → SK' : 'SK → EN';
+    const sides   = unitSideLabels(this.unit);
+    const label   = enToSk ? `${sides.left} → ${sides.right}` : `${sides.right} → ${sides.left}`;
 
     const x = Phaser.Math.Between(100, W - 100);
     const container = this.add.container(x, -80).setDepth(4);
@@ -1516,7 +1538,10 @@ class GameScene extends Phaser.Scene {
     // Clamp so the widest child never overflows the screen
     const maxHalf = Math.max(lblTxt.width, promptTxt.width, underTxt.width) / 2;
     container.x = Phaser.Math.Clamp(container.x, maxHalf + 10, W - maxHalf - 10);
-    this.words.push({ obj: container, word: answer, pairEN: pair.en, underTxt, promptTxt, isTranslation: true });
+    this.words.push({
+      obj: container, word: answer, pairEN: pair.en, underTxt, promptTxt, isTranslation: true,
+      missedLabel: `${capWords(pair.en)} → ${capWords(pair.sk)}`,
+    });
   }
 
   /* ── Level up ── */
@@ -1688,6 +1713,19 @@ class GameScene extends Phaser.Scene {
         this.hp = Math.max(0, this.hp - dmg);
         const fl = this.add.rectangle(fw.obj.x, this.groundY + 2, 200, 6, 0xff6622).setDepth(5);
         this.time.delayedCall(240, () => fl.destroy());
+
+        // Briefly recap the missed word/translation just above the ground
+        // line so the player can read (and learn) it before it disappears.
+        const recap = this.add.text(fw.obj.x, this.groundY - 10, fw.missedLabel || fw.word, {
+          fontSize: '15px', fill: '#ff9966', fontFamily: 'Arial, sans-serif',
+          stroke: '#331100', strokeThickness: 3,
+        }).setOrigin(0.5, 1).setDepth(6);
+        this.tweens.add({
+          targets: recap, alpha: 0, y: recap.y - 10,
+          delay: 1000, duration: 400, ease: 'Cubic.Out',
+          onComplete: () => recap.destroy(),
+        });
+
         fw.obj.destroy();
         this.words = this.words.filter(w => w !== fw);
       }
