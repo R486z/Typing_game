@@ -1,20 +1,22 @@
 # Word Drop – Nationalities (used by the "Tricky Words > Translate — Nationalities" mode)
-# Format: english|slovensky
-# Both sides used as prompts/answers – direction is random (EN→SK or SK→EN)
+# Format: Country|Nationality
+# Both sides used as prompts/answers – direction is random (Country -> Nationality or Nationality -> Country)
 # Lines starting with # are ignored.
 #
 # Edit freely — add, remove, or change any pair below.
 # After editing: save the file and reload the game page (F5).
 
-American|Američan
-British|Brit
-Slovak|Slovák
-Czech|Čech
-German|Nemec
-French|Francúz
-Italian|Talian
-Spanish|Španiel
-Polish|Poliak
-Russian|Rus
-Japanese|Japonec
-Chinese|Čínan
+Greece|Greek
+Thailand|Thai
+The United States of America|American
+New Zeland|New Zelander
+India|Indian
+Kenya|Kenyan
+The United Kingdom|British
+Brazil|Brazilian
+Slovakia|Slovak
+Hungary|Hungarian
+Poland|Polish
+Ukraine|Ukrainian
+Czech Republic|Czech
+Austria|Austrian
