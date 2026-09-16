@@ -9,7 +9,7 @@
 Greece|Greek
 Thailand|Thai
 The United States of America|American
-New Zeland|New Zelander
+New Zeland|New Zealander
 India|Indian
 Kenya|Kenyan
 The United Kingdom|British
