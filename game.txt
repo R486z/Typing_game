@@ -48,10 +48,39 @@ const MODE_META = {
 function modeMeta(id) { return MODE_META[id] || MODE_META.legacy; }
 
 /* ── Word pool ─────────────────────────────────────────────────────────────── */
-let wordPool              = [];
-let typingTranslationPool = [];  // mode 2: common EN↔SK vocabulary
-let trickyWordsPool       = [];  // mode 3: user's custom school vocabulary
-let storyPool             = [];  // mode 4: picture → English word (tricky words that have a matching image)
+let wordPool              = [];  // Random Words > Typing: L1/L2/L3 falling words
+let typingTranslationPool = [];  // Random Words > Translate: common EN↔SK vocabulary
+let trickyUnits            = {}; // Tricky Words: { "Unit 0 words": [{en,sk}, ...], "Nationalities": [...] }
+let storyUnits             = {}; // Story Mode:   { "Unit 0 words": [{en,sk,imageKey}, ...] } — only entries with a loaded picture
+
+// The menu's 2-level structure: category -> list of selectable (mechanic, unit) items.
+// `unit` is a key into trickyUnits/storyUnits, or null for the generic Random Words pools.
+// Add more units/items here later by extending this list + tricky_words.js.
+const MENU_TREE = {
+  tricky: {
+    label: 'Tricky Words', icon: '🎯', desc: 'your custom vocab',
+    items: [
+      { mechanic: 'translation', unit: 'Unit 0 words',  label: 'Translate',  sub: 'Unit 0 words' },
+      { mechanic: 'story',       unit: 'Unit 0 words',  label: 'Story Mode', sub: 'Unit 0 words' },
+      { mechanic: 'translation', unit: 'Nationalities', label: 'Translate',  sub: 'Nationalities' },
+    ],
+  },
+  random: {
+    label: 'Random Words', icon: '🎲', desc: 'built-in word lists',
+    items: [
+      { mechanic: 'typing',      unit: null, label: 'Typing',    sub: 'speed training' },
+      { mechanic: 'translation', unit: null, label: 'Translate', sub: 'EN ↔ SK vocab' },
+    ],
+  },
+};
+
+// Maps an in-game mechanic + unit to the leaderboard's MODE_META key. Keeps
+// the leaderboard's categories simple (Tricky / Typing / Translate / Story)
+// regardless of which specific unit was played.
+function lbModeFor(mechanic, unit) {
+  if (mechanic === 'translation') return unit ? 'tricky' : 'translation';
+  return mechanic; // 'typing' | 'story'
+}
 
 // Turns an English answer into the filename convention used under images/story/.
 // "virtual reality headset" -> "virtual_reality_headset" (expects a matching .jpg)
@@ -643,9 +672,32 @@ async function loadWords() {
   {en:'world',sk:'svet'},{en:'music',sk:'hudba'},{en:'sport',sk:'šport'}
 ];
   }
-  // Mode 3: Tricky Words — loaded from tricky_words.js (no fetch, works from file://)
-  if (window.TRICKY_WORDS) {
-    trickyWordsPool = parseTranslationWords(window.TRICKY_WORDS);
+  // Tricky Words — loaded from tricky_words.js (no fetch, works from file://).
+  // window.TRICKY_WORDS is now an object of named units: { "Unit name": "en|sk\n..." }
+  trickyUnits = {};
+  if (window.TRICKY_WORDS && typeof window.TRICKY_WORDS === 'object') {
+    for (const [unitName, text] of Object.entries(window.TRICKY_WORDS)) {
+      const pairs = parseTranslationWords(text);
+      if (pairs.length) trickyUnits[unitName] = pairs;
+    }
+  }
+  // "Nationalities" unit — its own .txt file (same en|sk format), fetched
+  // separately so it's easy to edit without touching tricky_words.js.
+  try {
+    const r = await fetch('nationality.txt');
+    if (!r.ok) throw 0;
+    const pairs = parseTranslationWords(await r.text());
+    if (!pairs.length) throw 0;
+    trickyUnits['Nationalities'] = pairs;
+  } catch {
+    trickyUnits['Nationalities'] = [
+      { en: 'american', sk: 'američan' }, { en: 'british', sk: 'brit' },
+      { en: 'slovak',   sk: 'slovák' },   { en: 'czech',   sk: 'čech' },
+      { en: 'german',   sk: 'nemec' },    { en: 'french',  sk: 'francúz' },
+      { en: 'italian',  sk: 'talian' },   { en: 'spanish', sk: 'španiel' },
+      { en: 'polish',   sk: 'poliak' },   { en: 'russian', sk: 'rus' },
+      { en: 'japanese', sk: 'japonec' },  { en: 'chinese', sk: 'čínan' },
+    ];
   }
 }
 
@@ -808,32 +860,41 @@ class PreloadScene extends Phaser.Scene {
       fontSize: '13px', fill: '#7788aa', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5);
 
-    // De-dupe by slug in case two vocab entries share the same English word.
-    const seen = new Set();
-    this._storyCandidates = trickyWordsPool
-      .map(p => ({ ...p, slug: storySlug(p.en) }))
-      .filter(c => (seen.has(c.slug) ? false : (seen.add(c.slug), true)));
+    // Build one candidate per unique (unit, word) — de-duped by slug within
+    // each unit. Each candidate gets a plain numeric index, which becomes
+    // the image key; simpler and collision-proof than encoding the slug
+    // itself in the key (units can't collide with each other this way).
+    this._storyCandidates = [];
+    Object.entries(trickyUnits).forEach(([unitName, pairs]) => {
+      const seenInUnit = new Set();
+      pairs.forEach(p => {
+        const slug = storySlug(p.en);
+        if (seenInUnit.has(slug)) return;
+        seenInUnit.add(slug);
+        this._storyCandidates.push({ unitName, en: p.en, sk: p.sk, slug });
+      });
+    });
 
     // Try both extensions per word — AI image tools mostly export .png, but
     // .jpg should work too. Whichever exists gets used (if both exist, the
-    // one that finishes loading first wins; the addedSlugs guard below stops
+    // one that finishes loading first wins; the addedIdx guard below stops
     // a word from being added twice).
     const EXTS = ['jpg', 'png'];
-    for (const c of this._storyCandidates) {
-      for (const ext of EXTS) {
-        this.load.image(`story_${c.slug}__${ext}`, `images/story/${c.slug}.${ext}`);
-      }
-    }
+    this._storyCandidates.forEach((c, i) => {
+      EXTS.forEach(ext => this.load.image(`story_${i}__${ext}`, `images/story/${c.slug}.${ext}`));
+    });
 
-    const addedSlugs = new Set();
+    const addedIdx = new Set();
     this.load.on('progress', v => { barFg.width = Math.max(4, 316 * v); });
     this.load.on('filecomplete', key => {
-      const m = /^story_(.+)__(jpg|png)$/.exec(key);
+      const m = /^story_(\d+)__(jpg|png)$/.exec(key);
       if (!m) return;
-      const slug = m[1];
-      if (addedSlugs.has(slug)) return; // already picked up via the other extension
-      const c = this._storyCandidates.find(x => x.slug === slug);
-      if (c) { addedSlugs.add(slug); storyPool.push({ en: c.en, sk: c.sk, imageKey: key }); }
+      const idx = Number(m[1]);
+      if (addedIdx.has(idx)) return; // already picked up via the other extension
+      const c = this._storyCandidates[idx];
+      if (!c) return;
+      addedIdx.add(idx);
+      (storyUnits[c.unitName] ||= []).push({ en: c.en, sk: c.sk, imageKey: key });
     });
     this.load.on('loaderror', () => { /* missing picture — expected, ignore */ });
   }
@@ -851,7 +912,10 @@ class MenuScene extends Phaser.Scene {
 
   create() {
     this.selectedLevel = 3;
-    this.gameMode      = 'tricky';
+    // Default selection: first item of the first category (mirrors the old default).
+    this.category = 'tricky';
+    this.mechanic = MENU_TREE.tricky.items[0].mechanic;
+    this.unit     = MENU_TREE.tricky.items[0].unit;
 
     this.add.rectangle(W / 2, H / 2, W, H, 0x1a1a2e);
     drawGrid(this);
@@ -897,58 +961,52 @@ class MenuScene extends Phaser.Scene {
       fontSize: '11px', fill: '#2a3a4a', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5);
 
-    // ── Mode tiles ───────────────────────────────────────────────────────────
+    // ── GAME MODE: category row (Tricky Words / Random Words) ────────────────
     this.add.text(W / 2, 264, 'GAME MODE', {
       fontSize: '13px', fill: '#8899bb',
       fontFamily: '"Arial Black", Arial, sans-serif', letterSpacing: 5,
     }).setOrigin(0.5);
 
-    this.modeCfg = [
-      { id: 'tricky',      label: 'Tricky Words',    sub: 'your vocab list',  col: 0x5a3a00, selCol: 0xaa6600, txtCol: '#886633', selTxtCol: '#ffcc44' },
-      { id: 'typing',      label: 'Typing Drill',    sub: 'speed training',   col: 0x002266, selCol: 0x004ab5, txtCol: '#335588', selTxtCol: '#66aaff' },
-      { id: 'translation', label: 'Word Translate',  sub: 'EN ↔ SK vocab',   col: 0x003322, selCol: 0x007744, txtCol: '#336655', selTxtCol: '#44ffaa' },
-      { id: 'story',       label: 'Story Mode',      sub: storyPool.length ? 'picture → word' : '(no pictures yet)',
-        col: 0x552200, selCol: 0xaa4400, txtCol: '#996644', selTxtCol: '#ff8844' },
-    ];
-
-    const TW = 172, TH = 58, GAP = 8;
-    const startX = (W - (4 * TW + 3 * GAP)) / 2 + TW / 2;
-    this.tileBgs = []; this.tileTxts = []; this.tileSubTxts = [];
-
-    this.modeCfg.forEach((cfg, i) => {
-      const x = startX + i * (TW + GAP), y = 316;
-      const bg = this.add.rectangle(x, y, TW, TH, cfg.locked ? 0x141e2a : cfg.col).setStrokeStyle(2, 0x223344);
-      const lbl = this.add.text(x, y - 10, cfg.label, {
-        fontSize: '13px', fill: cfg.locked ? '#334455' : cfg.txtCol,
-        fontFamily: '"Arial Black", Arial, sans-serif',
+    this.catCfg = Object.entries(MENU_TREE).map(([id, c]) => ({ id, ...c }));
+    const CW = 220, CH = 32, CGAP = 16;
+    const catStartX = (W - (this.catCfg.length * CW + (this.catCfg.length - 1) * CGAP)) / 2 + CW / 2;
+    this.catBgs = []; this.catTxts = [];
+    this.catCfg.forEach((cfg, i) => {
+      const x = catStartX + i * (CW + CGAP), y = 292;
+      const bg = this.add.rectangle(x, y, CW, CH, 0x141e2a).setStrokeStyle(2, 0x223344).setInteractive({ useHandCursor: true });
+      const txt = this.add.text(x, y, `${cfg.icon}  ${cfg.label}`, {
+        fontSize: '13px', fill: '#8899aa', fontFamily: '"Arial Black", Arial, sans-serif',
       }).setOrigin(0.5);
-      const sub = this.add.text(x, y + 12, cfg.sub, {
-        fontSize: '11px', fill: cfg.locked ? '#334455' : cfg.txtCol, fontFamily: 'Arial, sans-serif',
-      }).setOrigin(0.5).setAlpha(0.75);
-      this.tileBgs.push(bg); this.tileTxts.push(lbl); this.tileSubTxts.push(sub);
-      if (!cfg.locked) {
-        bg.setInteractive({ useHandCursor: true });
-        bg.on('pointerover', () => { if (this.gameMode !== cfg.id) bg.setFillStyle(cfg.selCol).setAlpha(0.55); });
-        bg.on('pointerout',  () => { if (this.gameMode !== cfg.id) bg.setFillStyle(cfg.col).setAlpha(1); });
-        bg.on('pointerdown', () => { this.gameMode = cfg.id; this.refreshMode(); this.refreshLevel(); });
-      }
+      this.catBgs.push(bg); this.catTxts.push(txt);
+      bg.on('pointerover', () => { if (this.category !== cfg.id) bg.setFillStyle(0x1c2838); });
+      bg.on('pointerout',  () => { if (this.category !== cfg.id) bg.setFillStyle(0x141e2a); });
+      bg.on('pointerdown', () => {
+        this.category = cfg.id;
+        const first = MENU_TREE[cfg.id].items[0];
+        this.mechanic = first.mechanic; this.unit = first.unit;
+        this.refreshCategory(); this.refreshItems(); this.refreshMode(); this.refreshLevel();
+      });
     });
 
-    this.modeDesc = this.add.text(W / 2, 358, '', {
+    // ── Item row: options for the currently selected category ────────────────
+    this.itemElems = [];
+    this.refreshItems();
+
+    this.modeDesc = this.add.text(W / 2, 378, '', {
       fontSize: '12px', fill: '#556677', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5);
 
     // ── START button ─────────────────────────────────────────────────────────
-    const sb = makeButton(this, W / 2, 400, 250, 52, 0x0066bb, 'START GAME', 26);
+    const sb = makeButton(this, W / 2, 418, 250, 52, 0x0066bb, 'START GAME', 26);
     sb.bg.on('pointerdown', () => this.scene.start('Game', {
-      level: this.selectedLevel, mode: this.gameMode,
+      level: this.selectedLevel, mode: this.mechanic, unit: this.unit,
     }));
 
     // ── Leaderboard + How to Play + on-screen keyboard toggle ────────────────
     const mkSmBtn = (x, w, icon, label, onClick) => {
-      const bg = this.add.rectangle(x, 462, w, 38, 0x1c2a3a)
+      const bg = this.add.rectangle(x, 478, w, 38, 0x1c2a3a)
         .setStrokeStyle(2, 0x334455).setInteractive({ useHandCursor: true });
-      const txt = this.add.text(x, 462, `${icon}  ${label}`, {
+      const txt = this.add.text(x, 478, `${icon}  ${label}`, {
         fontSize: '13px', fill: '#aabbcc', fontFamily: 'Arial, sans-serif',
       }).setOrigin(0.5);
       bg.on('pointerover', () => bg.setFillStyle(0x263444));
@@ -970,6 +1028,7 @@ class MenuScene extends Phaser.Scene {
       if (e.key >= '0' && e.key <= '9') { this.selectedLevel = parseInt(e.key, 10); this.refreshLevel(); }
     });
 
+    this.refreshCategory();
     this.refreshLevel();
     this.refreshMode();
   }
@@ -981,41 +1040,85 @@ class MenuScene extends Phaser.Scene {
     this.vkBtn.bg.setStrokeStyle(2, on ? 0x2a6a4a : 0x334455);
   }
 
+  refreshCategory() {
+    this.catCfg.forEach((cfg, i) => {
+      const sel = cfg.id === this.category;
+      this.catBgs[i].setFillStyle(sel ? 0x22334a : 0x141e2a).setStrokeStyle(2, sel ? 0xffffff : 0x223344);
+      this.catTxts[i].setStyle({ fill: sel ? '#ffffff' : '#8899aa' });
+    });
+  }
+
+  // Rebuilds the item row for the currently selected category.
+  refreshItems() {
+    for (const o of this.itemElems) o.destroy();
+    this.itemElems = [];
+
+    const items = MENU_TREE[this.category].items;
+    const IW = 220, IH = 52, IGAP = 10;
+    const startX = (W - (items.length * IW + (items.length - 1) * IGAP)) / 2 + IW / 2;
+
+    this.itemBgs = []; this.itemTxts = []; this.itemSubTxts = [];
+    items.forEach((item, i) => {
+      const x = startX + i * (IW + IGAP), y = 334;
+      const bg = this.add.rectangle(x, y, IW, IH, 0x1c2a3a).setStrokeStyle(2, 0x334455).setInteractive({ useHandCursor: true });
+      const txt = this.add.text(x, y - 10, item.label, {
+        fontSize: '14px', fill: '#aabbcc', fontFamily: '"Arial Black", Arial, sans-serif',
+      }).setOrigin(0.5);
+      const sub = this.add.text(x, y + 12, item.sub, {
+        fontSize: '11px', fill: '#778899', fontFamily: 'Arial, sans-serif',
+      }).setOrigin(0.5);
+      this.itemElems.push(bg, txt, sub);
+      this.itemBgs.push(bg); this.itemTxts.push(txt); this.itemSubTxts.push(sub);
+      bg.on('pointerover', () => { if (!(this.mechanic === item.mechanic && this.unit === item.unit)) bg.setFillStyle(0x263850); });
+      bg.on('pointerout',  () => { if (!(this.mechanic === item.mechanic && this.unit === item.unit)) bg.setFillStyle(0x1c2a3a); });
+      bg.on('pointerdown', () => {
+        this.mechanic = item.mechanic; this.unit = item.unit;
+        this.refreshItemSelection(); this.refreshMode(); this.refreshLevel();
+      });
+    });
+    this.refreshItemSelection();
+  }
+
+  refreshItemSelection() {
+    const items = MENU_TREE[this.category].items;
+    items.forEach((item, i) => {
+      const sel = this.mechanic === item.mechanic && this.unit === item.unit;
+      this.itemBgs[i].setFillStyle(sel ? 0x2a4a6a : 0x1c2a3a).setStrokeStyle(2, sel ? 0xffffff : 0x334455);
+      this.itemTxts[i].setStyle({ fill: sel ? '#ffffff' : '#aabbcc' });
+      this.itemSubTxts[i].setStyle({ fill: sel ? '#ccddee' : '#778899' });
+    });
+  }
+
   refreshLevel() {
     const lv = this.selectedLevel, b = LEVEL_CONFIG[lv];
     this.numTxt.setText(`${lv}`).setStyle({ fill: LEVEL_COLORS[lv] });
     this.descTxt.setText(DIFF_LABELS[lv]).setStyle({ fill: LEVEL_COLORS[lv] });
-    const trans = this.gameMode === 'translation' || this.gameMode === 'tricky' || this.gameMode === 'story';
-    const spd  = trans ? Math.round(b.speed * 0.7) : b.speed;
-    const intv = trans ? (b.interval * 2) / 1000 : b.interval / 1000;
+    const slow = this.mechanic === 'translation' || this.mechanic === 'story';
+    const spd  = slow ? Math.round(b.speed * 0.7) : b.speed;
+    const intv = slow ? (b.interval * 2) / 1000 : b.interval / 1000;
     this.infoTxt.setText(`${spd} px/s  ·  new word every ${intv}s`);
   }
 
   refreshMode() {
-    const descs = {
-      tricky:      trickyWordsPool.length === 0
-        ? '⚠  tricky_words.js is empty — add words and reload (F5)'
-        : `Your custom vocabulary  ·  ${trickyWordsPool.length} word pairs loaded`,
-      typing:      'Falling English words — type them as fast as you can',
-      translation: 'Word appears in EN or SK — type the translation',
-      story:       storyPool.length === 0
-        ? '⚠  no pictures yet — add .jpg/.png files to images/story/ and reload (F5)'
-        : `A picture falls — type its English name  ·  ${storyPool.length} pictures loaded`,
-    };
-    this.modeDesc.setText(descs[this.gameMode] || '');
-    const isWarn = (this.gameMode === 'tricky' && trickyWordsPool.length === 0)
-      || (this.gameMode === 'story' && storyPool.length === 0);
-    this.modeDesc.setStyle({ fill: isWarn ? '#ff8844' : '#556677' });
-
-    this.modeCfg.forEach((cfg, i) => {
-      const sel = cfg.id === this.gameMode;
-      this.tileBgs[i]
-        .setFillStyle(sel ? cfg.selCol : cfg.col)
-        .setStrokeStyle(sel ? 2 : 1, sel ? 0xffffff : 0x223344)
-        .setAlpha(1);
-      this.tileTxts[i].setStyle({ fill: sel ? cfg.selTxtCol : cfg.txtCol });
-      this.tileSubTxts[i].setStyle({ fill: sel ? cfg.selTxtCol : cfg.txtCol }).setAlpha(sel ? 1 : 0.75);
-    });
+    let desc = '', isWarn = false;
+    if (this.mechanic === 'typing') {
+      desc = 'Falling English words — type them as fast as you can';
+    } else if (this.mechanic === 'translation' && !this.unit) {
+      desc = 'Word appears in EN or SK — type the translation';
+    } else if (this.mechanic === 'translation' && this.unit) {
+      const n = (trickyUnits[this.unit] || []).length;
+      isWarn = n === 0;
+      desc = isWarn
+        ? `⚠  "${this.unit}" has no words yet — edit tricky_words.js and reload (F5)`
+        : `${this.unit}  ·  ${n} word pairs loaded`;
+    } else if (this.mechanic === 'story') {
+      const n = (storyUnits[this.unit] || []).length;
+      isWarn = n === 0;
+      desc = isWarn
+        ? `⚠  no pictures yet for "${this.unit}" — add .jpg/.png to images/story/`
+        : `${this.unit}  ·  ${n} pictures loaded`;
+    }
+    this.modeDesc.setText(desc).setStyle({ fill: isWarn ? '#ff8844' : '#556677' });
   }
 }
 
@@ -1028,14 +1131,15 @@ class GameScene extends Phaser.Scene {
   init(data) {
     this.startLevel  = typeof data.level === 'number' ? data.level : 3;
     this.kidMode     = data.kid  || false;
-    this.gameMode    = data.mode || 'typing';
+    this.gameMode    = data.mode || 'typing'; // mechanic: 'typing' | 'translation' | 'story'
+    this.unit        = data.unit || null;      // unit name (Tricky Words), or null for Random Words
   }
 
   /* ── helpers ── */
   getEffectiveCfg(level) {
     const b = LEVEL_CONFIG[level];
     let cfg;
-    if (this.gameMode === 'translation' || this.gameMode === 'tricky' || this.gameMode === 'story') {
+    if (this.gameMode === 'translation' || this.gameMode === 'story') {
       const kidMul = this.kidMode ? 2 : 1;
       cfg = { speed: b.speed * 0.7 / kidMul, interval: b.interval * 2 * kidMul, pool: b.pool };
     } else {
@@ -1051,14 +1155,20 @@ class GameScene extends Phaser.Scene {
   }
 
   buildPool() {
-    if (this.gameMode === 'translation' || this.gameMode === 'tricky' || this.gameMode === 'story') {
-      const source = this.gameMode === 'tricky' ? trickyWordsPool
-        // No pictures loaded yet? Fall back to the tricky-words list so the
-        // mode is still testable — spawnStoryWord() shows a 🖼️ placeholder
-        // instead of a real image for entries that have no imageKey.
-        : this.gameMode === 'story' ? (storyPool.length ? storyPool : trickyWordsPool)
-        : typingTranslationPool;
-      this.transPool = Phaser.Utils.Array.Shuffle([...source]);
+    if (this.gameMode === 'translation' || this.gameMode === 'story') {
+      let source;
+      if (this.gameMode === 'story') {
+        // No pictures loaded yet for this unit? Fall back to its plain word
+        // list so the mode is still testable — spawnStoryWord() shows a 🖼️
+        // placeholder instead of a real image for entries with no imageKey.
+        const withPics = storyUnits[this.unit] || [];
+        source = withPics.length ? withPics : (trickyUnits[this.unit] || []);
+      } else {
+        // Translation mechanic: a specific Tricky Words unit, or the
+        // generic Random Words vocabulary when no unit is set.
+        source = this.unit ? (trickyUnits[this.unit] || []) : typingTranslationPool;
+      }
+      this.transPool = Phaser.Utils.Array.Shuffle(source.length ? [...source] : [{ en: 'word', sk: 'slovo' }]);
       this.transIdx  = 0;
       return;
     }
@@ -1307,7 +1417,7 @@ class GameScene extends Phaser.Scene {
   spawnWord() {
     if (this.dead || this.frozen) return;
     if (this.gameMode === 'story') { this.spawnStoryWord(); return; }
-    if (this.gameMode === 'translation' || this.gameMode === 'tricky') { this.spawnTranslationWord(); return; }
+    if (this.gameMode === 'translation') { this.spawnTranslationWord(); return; }
 
     const active = new Set(this.words.map(w => w.word));
     let word, tries = 0;
@@ -1610,7 +1720,9 @@ class GameScene extends Phaser.Scene {
         startLevel:   this.startLevel,
         reachedLevel: this.currentLevel,
         kid:          this.kidMode,
-        mode:         this.gameMode,
+        mechanic:     this.gameMode,
+        unit:         this.unit,
+        mode:         lbModeFor(this.gameMode, this.unit),
       });
     });
   }
@@ -1627,7 +1739,9 @@ class GameOverScene extends Phaser.Scene {
     this.startLevel   = data.startLevel   ?? 3;
     this.reachedLevel = data.reachedLevel ?? this.startLevel;
     this.kidMode      = data.kid          || false;
-    this.gameMode     = data.mode         || 'typing';
+    this.mechanic     = data.mechanic     || 'typing'; // for restarting the same game
+    this.unit         = data.unit         || null;
+    this.gameMode     = data.mode         || 'typing'; // leaderboard/MODE_META display key
   }
 
   create() {
@@ -1865,7 +1979,7 @@ class GameOverScene extends Phaser.Scene {
 
   buildButtons() {
     const pb = makeButton(this, W / 2 - 115, 548, 200, 52, 0x0055aa, 'PLAY AGAIN', 20);
-    pb.bg.on('pointerdown', () => this.scene.start('Game', { level: this.startLevel, kid: this.kidMode, mode: this.gameMode }));
+    pb.bg.on('pointerdown', () => this.scene.start('Game', { level: this.startLevel, kid: this.kidMode, mode: this.mechanic, unit: this.unit }));
 
     const mb = this.add.rectangle(W / 2 + 115, 548, 200, 52, 0x1e2a3a)
       .setStrokeStyle(2, 0x334455).setInteractive({ useHandCursor: true });
@@ -2086,19 +2200,19 @@ class HowToPlayScene extends Phaser.Scene {
       }).setOrigin(0, 0);
     };
 
-    modeRow(214, '🟡', 0xaa6600, 'Tricky Words',
-      'Your personal vocabulary from tricky_words.js. A word appears in EN or SK — type the translation.');
-    modeRow(258, '🔵', 0x004ab5, 'Typing Drill',
-      'English words fall continuously. Pure typing speed and accuracy training.');
-    modeRow(302, '🟢', 0x007744, 'Word Translate',
-      'Common EN↔SK vocabulary (typing_translation.txt). Random direction each word.');
+    modeRow(214, '🎯', 0xaa6600, 'Tricky Words',
+      'Your own vocabulary, split into units (tricky_words.js, nationality.txt). Pick a unit, then Translate or Story Mode.');
+    modeRow(258, '🎲', 0x004ab5, 'Random Words',
+      'Built-in word lists. Typing = falling English words, speed training. Translate = common EN↔SK vocabulary, random direction.');
+    modeRow(302, '🟢', 0x007744, 'Translate (either category)',
+      'A word appears in EN or SK — type the translation. Same mechanic, just a different word list underneath.');
     modeRow(346, '🟠', 0xaa4400, 'Story Mode',
-      'A picture falls instead of text — type its English name. Uses tricky_words.js entries that have a matching image in images/story/.');
+      'A picture falls instead of text — type its English name. Uses whichever Tricky Words unit has matching pictures in images/story/.');
 
     // separator
     this.add.rectangle(W / 2, 398, 640, 1, 0x1e2e3e);
 
-    line(408, 'Edit tricky_words.js to add your school vocabulary. Format: english|slovensky', '#445566');
+    line(408, 'Edit tricky_words.js / nationality.txt to add your own vocabulary. Format: english|slovensky', '#445566');
     line(424, 'For Story Mode, drop a picture named after the English word into images/story/ (.jpg or .png, e.g. apple.png).', '#445566');
     line(440, 'Save the file(s) and press F5 to reload the game.', '#445566');
 
