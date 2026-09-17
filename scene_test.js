@@ -1,0 +1,163 @@
+/* Headless smoke test: runs the menu scenes against a fake Phaser so that
+   runtime errors in create()/click handlers show up here instead of freezing
+   the game in the browser. Run with: node scene_test.js */
+
+const fs = require('fs');
+
+function stub(name, extra = {}) {
+  const o = {
+    _name: name, _handlers: {}, x: 0, y: 0, width: 0, height: 0, alpha: 1, visible: true,
+    on(ev, fn) { (this._handlers[ev] ||= []).push(fn); return this; },
+    off() { return this; },
+    emit(ev, ...args) { (this._handlers[ev] || []).forEach(fn => fn(...args)); return this; },
+    setOrigin() { return this; }, setStrokeStyle() { return this; },
+    setInteractive() { return this; }, disableInteractive() { return this; },
+    setFillStyle() { return this; }, setVisible(v) { this.visible = v; return this; },
+    setSize(w, h) { this.width = w; this.height = h; return this; },
+    setText(t) { this._text = t; return this; }, setStyle() { return this; },
+    setDepth() { return this; }, setAlpha(a) { this.alpha = a; return this; },
+    setScale() { return this; }, setMask() { return this; }, setTint() { return this; },
+    destroy() { this._dead = true; }, fillRect() { return this; },
+    lineStyle() { return this; }, lineBetween() { return this; },
+    fillStyle() { return this; }, beginPath() { return this; },
+    strokePath() { return this; }, clear() { return this; },
+    createGeometryMask() { return stub('mask'); },
+    ...extra,
+  };
+  return o;
+}
+
+function fakeScene(sceneKey, started) {
+  const objects = [];
+  const track = o => { objects.push(o); return o; };
+  const sc = {
+    _key: sceneKey, _objects: objects,
+    add: {
+      rectangle: () => track(stub('rect')),
+      text: () => track(stub('text')),
+      container: () => track(stub('container', {
+        list: [],
+        add(o) { Array.isArray(o) ? this.list.push(...o) : this.list.push(o); return this; },
+        removeAll() { this.list.length = 0; return this; },
+      })),
+      graphics: () => track(stub('graphics')),
+      image: () => track(stub('image')),
+    },
+    make: { graphics: () => stub('graphics') },
+    input: {
+      on() { return this; },
+      keyboard: { on() { return this; }, off() { return this; } },
+    },
+    cameras: { main: { shake() {} } },
+    time: { delayedCall(_, fn) { fn(); } },
+    scene: { start: (key, data) => started.push({ from: sceneKey, key, data }) },
+    tweens: { add() {} },
+  };
+  return sc;
+}
+
+global.window = {};
+global.navigator = { maxTouchPoints: 0 };
+global.localStorage = { getItem: () => null, setItem() {} };
+global.document = { body: {} };
+global.fetch = async () => ({ ok: false });
+global.Phaser = {
+  Scene: class { constructor(key) { this._sceneKey = key; } },
+  AUTO: 0, Game: class {}, Scale: { FIT: 0, CENTER_BOTH: 0 },
+  Utils: { Array: { Shuffle: a => a } },
+  Math: { Clamp: (v, a, b) => Math.max(a, Math.min(b, v)) },
+  Display: { Color: { ValueToColor: () => ({ darken() {}, color: 0 }) } },
+};
+
+require('./english_words.js');
+require('./science_words.js');
+
+const src = fs.readFileSync('./game.js', 'utf8');
+
+const probe = `
+setTimeout(() => {
+  const started = [];
+  const results = [];
+  const run = (label, fn) => {
+    try { fn(); results.push(['ok  ', label]); }
+    catch (e) { results.push(['FAIL', label + ' → ' + e.message]); }
+  };
+
+  // Mixes a fake scene's API into a real scene instance.
+  const mount = (SceneClass, key, initData) => {
+    const inst = new SceneClass();
+    Object.assign(inst, GLOBAL_FAKE(key, started));
+    if (inst.init) inst.init(initData || {});
+    inst.create();
+    return inst;
+  };
+
+  let home, subj;
+  run('HomeScene.create', () => { home = mount(HomeScene, 'Menu'); });
+  run('SubjectScene.create (english)', () => { subj = mount(SubjectScene, 'Subject', { subject: 'english' }); });
+  run('tick a Štúdium checkbox', () => {
+    subj.toggle(lessonsFor('english')[0].id, 'study');
+    if (!subj.sel.ids.length) throw new Error('nothing selected');
+  });
+  run('START with Štúdium', () => {
+    started.length = 0; subj.start();
+    if (started[0].key !== 'Study') throw new Error('went to ' + started[0].key);
+  });
+  run('switch to Padajúce slová', () => {
+    subj.toggle(lessonsFor('english')[0].id, 'drop');
+    started.length = 0; subj.start();
+    if (started[0].key !== 'Game') throw new Error('went to ' + started[0].key);
+    if (!trickyUnits[started[0].data.unit]) throw new Error('unit not playable');
+  });
+  run('single-select rule', () => {
+    const ls = lessonsFor('english');
+    if (ls.length > 1) {
+      subj.toggle(ls[0].id, 'drop'); subj.toggle(ls[1].id, 'drop');
+      if (subj.sel.ids.length !== MAX_SELECTED_LESSONS) throw new Error('got ' + subj.sel.ids.length);
+    }
+  });
+  run('untick clears selection', () => {
+    const id = subj.sel.ids[0];
+    subj.toggle(id, subj.sel.mode);
+    if (subj.sel.mode !== null) throw new Error('mode still ' + subj.sel.mode);
+  });
+  run('collapse + expand a group', () => {
+    const g = lessonGroups('english')[0].name;
+    subj.collapsed[g] = true; subj.buildList();
+    delete subj.collapsed[g]; subj.buildList();
+  });
+  run('scroll clamping', () => {
+    subj.scrollBy(9999); subj.scrollBy(-9999);
+    if (subj.scrollY !== 0) throw new Error('scrollY = ' + subj.scrollY);
+  });
+  run('StudyScene.create + paging', () => {
+    const st = mount(StudyScene, 'Study', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
+    st.flip(1); st.flip(-1);
+  });
+  run('TrainScene.create', () => {
+    mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
+  });
+  run('RandomScene.create + start', () => {
+    const r = mount(RandomScene, 'Random');
+    started.length = 0;
+    r.startBtn.bg.emit('pointerdown');
+    if (started[0].key !== 'Game') throw new Error('went to ' + started[0].key);
+  });
+  run('Science is locked (no navigation)', () => {
+    if (!SUBJECTS.science.comingSoon) throw new Error('science not marked comingSoon');
+  });
+  run('difficulty picker 0-9', () => {
+    MENU_STATE.level = 0; subj.diff.refresh();
+    MENU_STATE.level = 9; subj.diff.refresh();
+    MENU_STATE.level = 3; subj.diff.refresh();
+  });
+
+  results.forEach(([s, l]) => console.log(s + '  ' + l));
+  const failed = results.filter(r => r[0] === 'FAIL').length;
+  console.log('\\n' + (results.length - failed) + '/' + results.length + ' passed');
+  process.exitCode = failed ? 1 : 0;
+}, 200);
+`;
+
+global.GLOBAL_FAKE = fakeScene;
+eval(src + probe);

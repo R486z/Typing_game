@@ -76,6 +76,9 @@ const SUBJECTS = {
     label: 'Science', short: 'Science', icon: '🔬', color: '#44ffaa',
     colorHex: 0x44ffaa, lbMode: 'science',
     source: 'science_words.js',
+    // Locked for now: the card is visible but not clickable. Delete this line
+    // when the Science lessons are ready — everything else already works.
+    comingSoon: true,
   },
   random: {
     label: 'Random words', short: 'Random', icon: '🎲', color: '#ffcc44',
@@ -1171,22 +1174,36 @@ class HomeScene extends Phaser.Scene {
     const ids = Object.keys(SUBJECTS);
     const CH = 84, GAP = 14, top = 124;
     ids.forEach((id, i) => {
-      const s = SUBJECTS[id];
+      const s    = SUBJECTS[id];
+      const lock = !!s.comingSoon;
       const y = top + i * (CH + GAP) + CH / 2;
-      const bg = this.add.rectangle(W / 2, y, 660, CH, 0x1c2a3a)
-        .setStrokeStyle(2, 0x2a3c50).setInteractive({ useHandCursor: true });
-      this.add.rectangle(W / 2 - 330 + 3, y, 6, CH, s.colorHex);   // colour bar
-      this.add.text(W / 2 - 300, y, s.icon, { fontSize: '30px' }).setOrigin(0.5);
+      const bg = this.add.rectangle(W / 2, y, 660, CH, lock ? 0x15202c : 0x1c2a3a)
+        .setStrokeStyle(2, lock ? 0x243240 : 0x2a3c50);
+      this.add.rectangle(W / 2 - 330 + 3, y, 6, CH, s.colorHex).setAlpha(lock ? 0.35 : 1);
+      this.add.text(W / 2 - 300, y, s.icon, { fontSize: '30px' }).setOrigin(0.5).setAlpha(lock ? 0.4 : 1);
       this.add.text(W / 2 - 262, y - 14, s.label, {
-        fontSize: '19px', fill: '#ffffff', fontFamily: '"Arial Black", Arial, sans-serif',
+        fontSize: '19px', fill: lock ? '#5a6a7a' : '#ffffff',
+        fontFamily: '"Arial Black", Arial, sans-serif',
       }).setOrigin(0, 0.5);
-      this.add.text(W / 2 - 262, y + 13, this.metaFor(id), {
-        fontSize: '12px', fill: '#8899aa', fontFamily: 'Arial, sans-serif',
+      this.add.text(W / 2 - 262, y + 13, lock ? 'Pripravujeme' : this.metaFor(id), {
+        fontSize: '12px', fill: lock ? '#4a5a6a' : '#8899aa', fontFamily: 'Arial, sans-serif',
       }).setOrigin(0, 0.5);
+
+      if (lock) {
+        // Locked card: no pointer handlers at all, just a badge.
+        const bw = 104;
+        this.add.rectangle(W / 2 + 280 - bw / 2, y, bw, 24, 0x1d2a22)
+          .setStrokeStyle(1, 0x2e5a45);
+        this.add.text(W / 2 + 280 - bw / 2, y, 'COMING SOON', {
+          fontSize: '10px', fill: '#4e8a70', fontFamily: '"Arial Black", Arial, sans-serif',
+        }).setOrigin(0.5);
+        return;
+      }
+
+      bg.setInteractive({ useHandCursor: true });
       this.add.text(W / 2 + 300, y, '›', {
         fontSize: '30px', fill: '#445566', fontFamily: '"Arial Black", Arial',
       }).setOrigin(0.5);
-
       bg.on('pointerover', () => bg.setFillStyle(0x263850).setStrokeStyle(2, s.colorHex));
       bg.on('pointerout',  () => bg.setFillStyle(0x1c2a3a).setStrokeStyle(2, 0x2a3c50));
       bg.on('pointerdown', () => {
@@ -1296,9 +1313,10 @@ class SubjectScene extends Phaser.Scene {
       this.scrollBy(-(p.y - p.prevPosition.y));
     });
 
-    /* ── Bottom bar: difficulty + selection + START ── */
+    /* ── Bottom bar: difficulty + selection + START ──
+       Order matters: the texts have to exist before difficultyPicker() runs,
+       because its initial refresh calls back into refreshInfo(). */
     this.add.rectangle(W / 2, 424, 720, 1, 0x2a3c50);
-    this.diff = difficultyPicker(this, 150, 476, () => this.refreshInfo());
 
     this.selTxt = this.add.text(300, 452, '', {
       fontSize: '15px', fill: '#ffffff', fontFamily: '"Arial Black", Arial, sans-serif',
@@ -1312,7 +1330,9 @@ class SubjectScene extends Phaser.Scene {
     this.startBtn = makeButton(this, 600, 534, 260, 46, 0x0066bb, 'SPUSTIŤ', 22);
     this.startBtn.bg.on('pointerdown', () => this.start());
 
-    this.hintTxt = this.add.text(40, 534, 'Zatiaľ sa dá vybrať\njedna lekcia naraz.', {
+    this.diff = difficultyPicker(this, 150, 476, () => this.refreshInfo());
+
+    this.hintTxt = this.add.text(40, 534, 'Zatiaľ sa dá vybrať\njednu lekciu naraz.', {
       fontSize: '11px', fill: '#33445a', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0, 0.5);
 
@@ -1453,6 +1473,7 @@ class SubjectScene extends Phaser.Scene {
   }
 
   refreshInfo() {
+    if (!this.selTxt) return;   // bottom bar not built yet (see create())
     const s = this.sel;
     if (!s.mode || !s.ids.length) {
       this.selTxt.setText('Nič nie je vybrané');
