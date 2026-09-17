@@ -49,9 +49,16 @@ function fakeScene(sceneKey, started) {
       keyboard: { on() { return this; }, off() { return this; } },
     },
     cameras: { main: { shake() {} } },
-    time: { delayedCall(_, fn) { fn(); } },
-    scene: { start: (key, data) => started.push({ from: sceneKey, key, data }) },
-    tweens: { add() {} },
+    time: {
+      delayedCall(_, fn) { return { _fn: fn, remove() {} }; },
+      addEvent(cfg) { return { _cfg: cfg, remove() {} }; },
+    },
+    scene: {
+      start:   (key, data) => started.push({ from: sceneKey, key, data }),
+      restart: (data)      => started.push({ from: sceneKey, key: sceneKey, data, restart: true }),
+    },
+    tweens: { add(cfg) { if (cfg.onComplete) cfg.onComplete(); } },
+    events: { once() {}, on() {}, off() {} },
   };
   return sc;
 }
@@ -136,6 +143,47 @@ setTimeout(() => {
   });
   run('TrainScene.create', () => {
     mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
+  });
+  run('Tréning: typing the correct answer scores a point', () => {
+    const tr = mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
+    const scoreBefore = tr.score;
+    [...tr.target].filter(c => c !== ' ').forEach(ch => tr.pressLetter(ch));
+    if (tr.score !== scoreBefore + 1) throw new Error('score did not increase, typed=' + tr.typed + ' target=' + tr.target);
+    if (!tr.locked) throw new Error('question should lock on correct answer');
+  });
+  run('Tréning: backspace removes a character', () => {
+    const tr = mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
+    tr.pressLetter('a'); const len1 = tr.typed.length;
+    tr.pressBackspace();
+    if (tr.typed.length !== len1 - 1) throw new Error('backspace did not shrink typed');
+  });
+  run('Tréning: timeout marks the word as missed', () => {
+    const tr = mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
+    const pairBefore = tr.pair;
+    tr.onTimeout();
+    if (tr.missed.length !== 1 || tr.missed[0] !== pairBefore) throw new Error('timeout did not record the missed pair');
+  });
+  run('Tréning: results screen renders (with and without misses)', () => {
+    const tr = mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
+    tr.missed = [tr.words[0]];
+    tr.showResults();
+    const tr2 = mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
+    tr2.missed = [];
+    tr2.showResults();
+  });
+  run('Tréning: retry-missed restarts the scene with just those words', () => {
+    const tr = mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
+    tr.missed = [tr.words[0], tr.words[1]];
+    started.length = 0;
+    tr.retryMissed();
+    if (!started[0].restart || started[0].data._pool.length !== 2) throw new Error('retryMissed did not restart with the missed pool');
+  });
+  run('Tréning: difficulty knob changes timing', () => {
+    const easy = trainTiming(0), hard = trainTiming(9);
+    if (!(easy.timeLimitMs > hard.timeLimitMs && easy.hintMs > hard.hintMs)) throw new Error('timing did not scale with difficulty');
+  });
+  run('Tréning: empty selection shows a message, not a crash', () => {
+    mount(TrainScene, 'Train', { subject: 'english', ids: ['__no_such_lesson__'], back: { scene: 'Subject', data: {} } });
   });
   run('RandomScene.create + start', () => {
     const r = mount(RandomScene, 'Random');

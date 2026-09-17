@@ -1652,37 +1652,313 @@ class StudyScene extends Phaser.Scene {
 /* ════════════════════════════════════════════════════════════════════════════
    TRAIN SCENE — placeholder for the new practice mode
 ════════════════════════════════════════════════════════════════════════════ */
+/* ── Difficulty → timing for Tréning ─────────────────────────────────────────
+   Reuses the same 0–9 OBTIAŽNOSŤ knob shown at the bottom of every screen, so
+   it means the same thing everywhere: 0 = most forgiving, 9 = hardest.
+     time limit    14s (lvl 0)  →  6s  (lvl 9)
+     hint interval 3.2s (lvl 0) →  1.7s (lvl 9)  — how often a new letter appears
+*/
+function trainTiming(level) {
+  const t = Phaser.Math.Clamp(level, 0, 9) / 9;
+  return {
+    timeLimitMs: Math.round(14000 - t * 8000),
+    hintMs:      Math.round(3200 - t * 1500),
+  };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   TRAIN SCENE — typing quiz with a letter-by-letter hint, no multiple choice.
+   ---------------------------------------------------------------------------
+   Deliberately NOT multiple-choice: picking from 4 options lets a child pass
+   by elimination/pattern-matching without really knowing the word. Here they
+   always have to type the real answer — the hint (one more letter revealed
+   every couple of seconds) is just a safety net so nobody gets stuck staring
+   at a blank line, not an answer key.
+════════════════════════════════════════════════════════════════════════════ */
 class TrainScene extends Phaser.Scene {
   constructor() { super('Train'); }
 
   init(data) {
-    this.subject = data.subject || 'english';
-    this.ids     = data.ids || [];
-    this.back    = data.back || { scene: 'Menu', data: {} };
+    this.subject   = data.subject || 'english';
+    this.ids       = data.ids || [];
+    this.back      = data.back || { scene: 'Menu', data: {} };
+    this._poolOverride = data._pool || null;   // set by retryMissed()
   }
 
   create() {
-    const cfg = SUBJECTS[this.subject];
-    menuHeader(this, '⚡  Tréning', 'Pripravujeme', cfg.color,
-      () => this.scene.start(this.back.scene, this.back.data));
+    this.cfg    = SUBJECTS[this.subject];
+    this.pool   = this._poolOverride
+      ? Phaser.Utils.Array.Shuffle(this._poolOverride.slice())
+      : Phaser.Utils.Array.Shuffle(wordsForSelection(this.subject, this.ids).slice());
+    this.words  = this.pool;
+    this.total  = this.words.length;
+    this.idx    = 0;
+    this.score  = 0;
+    this.missed = [];
+    this.vkOn   = vkEnabled;
 
-    const n = wordsForSelection(this.subject, this.ids).length;
-    this.add.rectangle(W / 2, 290, 560, 240, 0x16202c).setStrokeStyle(2, 0x2a3c50);
-    this.add.text(W / 2, 220, '🚧', { fontSize: '44px' }).setOrigin(0.5);
-    this.add.text(W / 2, 282, 'Tréningový mód ešte nie je hotový', {
-      fontSize: '18px', fill: '#ffffff', fontFamily: '"Arial Black", Arial, sans-serif',
+    menuHeader(this, '⚡  Tréning', selectionLabel(this.subject, this.ids), this.cfg.color,
+      () => this.leave());
+
+    if (!this.words.length) {
+      this.add.text(W / 2, 260, 'Táto lekcia nemá žiadne slovíčka.', {
+        fontSize: '16px', fill: '#445566', fontFamily: 'Arial, sans-serif',
+      }).setOrigin(0.5);
+      const b = makeButton(this, W / 2, 340, 260, 46, 0x1e2a3a, '← späť na lekcie', 18);
+      b.bg.setStrokeStyle(2, 0x334455); b.txt.setStyle({ fill: '#9aaabb' });
+      b.bg.on('pointerdown', () => this.leave());
+      return;
+    }
+
+    this.progressTxt = this.add.text(W / 2, 82, '', {
+      fontSize: '12px', fill: '#667788', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5, 0);
+
+    // Time bar
+    this.barBg = this.add.rectangle(W / 2, 106, 600, 8, 0x1c2a3a).setStrokeStyle(1, 0x2a3c50);
+    this.bar   = this.add.rectangle(W / 2 - 300, 106, 600, 8, this.cfg.colorHex).setOrigin(0, 0.5);
+
+    this.promptSideTxt = this.add.text(W / 2, 140, '', {
+      fontSize: '12px', fill: '#667788', fontFamily: 'Arial, sans-serif', letterSpacing: 3,
+    }).setOrigin(0.5, 0);
+    this.promptTxt = this.add.text(W / 2, 168, '', {
+      fontSize: '34px', fill: '#ffffff', fontFamily: '"Arial Black", Arial, sans-serif',
+      align: 'center', wordWrap: { width: 680 },
+    }).setOrigin(0.5, 0);
+
+    this.maskTxt = this.add.text(W / 2, 240, '', {
+      fontSize: '30px', fill: this.cfg.color, fontFamily: '"Courier New", monospace',
+      align: 'center', wordWrap: { width: 680 },
+    }).setOrigin(0.5, 0);
+
+    this.typedTxt = this.add.text(W / 2, 288, '', {
+      fontSize: '18px', fill: '#8899aa', fontFamily: '"Courier New", monospace',
+      align: 'center', wordWrap: { width: 680 },
+    }).setOrigin(0.5, 0);
+
+    this.feedbackTxt = this.add.text(W / 2, 320, '', {
+      fontSize: '15px', fill: '#66ff99', fontFamily: '"Arial Black", Arial, sans-serif',
+    }).setOrigin(0.5, 0);
+
+    // Physical + on-screen keyboard funnel through the same two functions.
+    this.onKey = e => {
+      if (this.locked) return;
+      if (e.key === 'Backspace') { this.pressBackspace(); return; }
+      if (e.key === 'Enter') return;
+      if (!/^[a-zA-Zá-žÁ-Ž]$/.test(e.key)) return;
+      this.pressLetter(e.key);
+    };
+    this.input.keyboard.on('keydown', this.onKey, this);
+    this.events.once('shutdown', () => this.input.keyboard.off('keydown', this.onKey, this));
+
+    if (this.vkOn) this.buildVirtualKeyboard(360);
+
+    this.startQuestion();
+  }
+
+  leave() {
+    if (this.hintTimer) this.hintTimer.remove(false);
+    if (this.timeoutTimer) this.timeoutTimer.remove(false);
+    this.scene.start(this.back.scene, this.back.data);
+  }
+
+  /* ── One question ── */
+  startQuestion() {
+    this.locked = false;
+    const pair = this.words[this.idx];
+    // Random direction each question, so both EN→SK and SK→EN get practised.
+    this.toSlovak = Math.random() < 0.5;
+    this.prompt   = this.toSlovak ? pair.en : pair.sk;
+    this.target   = this.toSlovak ? pair.sk : pair.en;
+    this.pair     = pair;
+    this.typed    = '';
+    this.revealed = 0;   // how many non-space characters of the target are shown
+
+    const { timeLimitMs, hintMs } = trainTiming(MENU_STATE.level);
+    this.timeLimitMs = timeLimitMs;
+
+    this.progressTxt.setText(`Otázka ${this.idx + 1} / ${this.total}   ·   skóre ${this.score}`);
+    this.promptSideTxt.setText(this.toSlovak ? 'PRELOŽ DO SLOVENČINY' : 'PRELOŽ DO ANGLIČTINY');
+    this.promptTxt.setText(this.prompt);
+    this.feedbackTxt.setText('');
+    this.renderMask();
+    this.renderTyped();
+
+    this.bar.width = 600;
+    this.bar.setFillStyle(this.cfg.colorHex);
+    this.elapsed = 0;
+    this.tickTimer = this.time.addEvent({
+      delay: 50, loop: true, callback: () => {
+        this.elapsed += 50;
+        this.bar.width = Math.max(0, 600 * (1 - this.elapsed / this.timeLimitMs));
+      },
+    });
+    this.hintTimer = this.time.addEvent({
+      delay: hintMs, loop: true, callback: () => this.revealNext(),
+    });
+    this.timeoutTimer = this.time.delayedCall(this.timeLimitMs, () => this.onTimeout());
+  }
+
+  nonSpaceLen(s) { return s.replace(/\s/g, '').length; }
+
+  renderMask() {
+    let shown = 0;
+    const out = [...this.target].map(ch => {
+      if (ch === ' ') return ' ';
+      shown += 1;
+      return shown <= this.revealed ? ch : '_';
+    }).join(' ');
+    this.maskTxt.setText(out);
+  }
+
+  renderTyped() {
+    this.typedTxt.setText(this.typed ? `Píšeš: ${this.typed}` : 'Píšeš: _');
+  }
+
+  revealNext() {
+    const max = this.nonSpaceLen(this.target);
+    if (this.revealed >= max) return;
+    this.revealed += 1;
+    this.renderMask();
+  }
+
+  pressLetter(letter) {
+    if (this.locked) return;
+    if (this.typed.length >= this.nonSpaceLen(this.target) + 6) return; // safety cap
+    this.typed += letter.toLowerCase();
+    this.renderTyped();
+    this.checkMatch();
+  }
+
+  pressBackspace() {
+    if (this.locked || !this.typed) return;
+    this.typed = this.typed.slice(0, -1);
+    this.renderTyped();
+  }
+
+  checkMatch() {
+    if (normalize(this.typed) === normalize(this.target)) { this.onCorrect(); return; }
+    // Same length but wrong — a little shake, then let them keep correcting.
+    if (normalize(this.typed).length >= normalize(this.target).length) {
+      this.typedTxt.setStyle({ fill: '#ff6666' });
+      this.tweens.add({
+        targets: this.typedTxt, x: { from: W / 2 - 8, to: W / 2 + 8 }, duration: 40, yoyo: true, repeat: 3,
+        onComplete: () => { this.typedTxt.setStyle({ fill: '#8899aa' }); this.typedTxt.x = W / 2; },
+      });
+    }
+  }
+
+  clearTimers() {
+    if (this.tickTimer)    this.tickTimer.remove(false);
+    if (this.hintTimer)    this.hintTimer.remove(false);
+    if (this.timeoutTimer) this.timeoutTimer.remove(false);
+  }
+
+  onCorrect() {
+    this.locked = true;
+    this.clearTimers();
+    this.score += 1;
+    this.feedbackTxt.setText('✓ správne!').setStyle({ fill: '#66ff99' });
+    this.maskTxt.setText([...this.target].join(' '));
+    this.time.delayedCall(650, () => this.advance());
+  }
+
+  onTimeout() {
+    this.locked = true;
+    this.clearTimers();
+    this.missed.push(this.pair);
+    this.bar.width = 0;
+    this.feedbackTxt.setText(`✗ správne bolo: ${this.target}`).setStyle({ fill: '#ff8866' });
+    this.maskTxt.setText([...this.target].join(' '));
+    this.time.delayedCall(1400, () => this.advance());
+  }
+
+  advance() {
+    this.idx += 1;
+    if (this.idx >= this.words.length) this.showResults();
+    else this.startQuestion();
+  }
+
+  showResults() {
+    [this.progressTxt, this.barBg, this.bar, this.promptSideTxt, this.promptTxt,
+     this.maskTxt, this.typedTxt, this.feedbackTxt].forEach(o => o && o.setVisible(false));
+    if (this.vkKeys) this.vkKeys.forEach(k => k.destroy());
+
+    const n = this.words.length;
+    this.add.text(W / 2, 130, `${this.score} / ${n}`, {
+      fontSize: '54px', fill: this.cfg.color, fontFamily: '"Arial Black", Arial, sans-serif',
     }).setOrigin(0.5);
-    this.add.text(W / 2, 320,
-      `Vybrané: ${selectionLabel(this.subject, this.ids)}  ·  ${n} slovíčok\n\n` +
-      'Keď sa dohodneme, ako má tréning fungovať,\npribudne presne na tomto mieste.', {
-        fontSize: '13px', fill: '#8899aa', fontFamily: 'Arial, sans-serif', align: 'center',
-        lineSpacing: 2,
-      }).setOrigin(0.5, 0);
+    this.add.text(W / 2, 190, this.score === n ? 'Všetko správne! 🎉' : 'Hotovo', {
+      fontSize: '16px', fill: '#aabbcc', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
 
-    const b = makeButton(this, W / 2, 470, 260, 46, 0x1e2a3a, '← späť na lekcie', 18);
-    b.bg.setStrokeStyle(2, 0x334455);
-    b.txt.setStyle({ fill: '#9aaabb' });
-    b.bg.on('pointerdown', () => this.scene.start(this.back.scene, this.back.data));
+    if (this.missed.length) {
+      this.add.text(W / 2, 230, 'Pomýlil(a) si sa v:', {
+        fontSize: '12px', fill: '#8899aa', fontFamily: 'Arial, sans-serif',
+      }).setOrigin(0.5);
+      this.missed.slice(0, 8).forEach((p, i) => {
+        this.add.text(W / 2, 256 + i * 22, `${p.en}  →  ${p.sk}`, {
+          fontSize: '14px', fill: '#dde6ee', fontFamily: 'Arial, sans-serif',
+        }).setOrigin(0.5);
+      });
+      if (this.missed.length > 8) {
+        this.add.text(W / 2, 256 + 8 * 22, `… a ${this.missed.length - 8} ďalších`, {
+          fontSize: '12px', fill: '#556677', fontFamily: 'Arial, sans-serif',
+        }).setOrigin(0.5);
+      }
+    }
+
+    const btnY = 470;
+    if (this.missed.length) {
+      const rb = makeButton(this, W / 2 - 150, btnY, 280, 46, 0x0066bb, 'Skúsiť znova chybné', 17);
+      rb.bg.on('pointerdown', () => this.retryMissed());
+      const bb = makeButton(this, W / 2 + 150, btnY, 220, 46, 0x1e2a3a, '← späť na lekcie', 17);
+      bb.bg.setStrokeStyle(2, 0x334455); bb.txt.setStyle({ fill: '#9aaabb' });
+      bb.bg.on('pointerdown', () => this.leave());
+    } else {
+      const bb = makeButton(this, W / 2, btnY, 260, 46, 0x1e2a3a, '← späť na lekcie', 18);
+      bb.bg.setStrokeStyle(2, 0x334455); bb.txt.setStyle({ fill: '#9aaabb' });
+      bb.bg.on('pointerdown', () => this.leave());
+    }
+  }
+
+  retryMissed() {
+    this.scene.restart({ subject: this.subject, ids: this.ids, back: this.back, _pool: this.missed });
+  }
+
+  // On-screen QWERTY — same layout/feel as the falling-word game's keyboard,
+  // funnelled through pressLetter()/pressBackspace() like everywhere else.
+  buildVirtualKeyboard(topY) {
+    const GAP = 6, KEY_H = 46;
+    const KEY_W = Math.floor((W - 32 - 9 * GAP) / 10);
+    const rows = [
+      [...'qwertyuiop'].map(ch => ({ label: ch.toUpperCase(), w: KEY_W, fn: () => this.pressLetter(ch) })),
+      [...'asdfghjkl'].map(ch => ({ label: ch.toUpperCase(), w: KEY_W, fn: () => this.pressLetter(ch) })),
+      [...'zxcvbnm'].map(ch => ({ label: ch.toUpperCase(), w: KEY_W, fn: () => this.pressLetter(ch) }))
+        .concat([{ label: '⌫', w: KEY_W * 1.7, fn: () => this.pressBackspace(), fill: 0x3a1c1c }]),
+    ];
+    this.vkKeys = [];
+    const makeKey = (x, y, spec) => {
+      const fill = spec.fill || 0x1c2a3a;
+      const bg = this.add.rectangle(x, y, spec.w, KEY_H, fill)
+        .setStrokeStyle(1, 0x334455).setInteractive({ useHandCursor: true });
+      const txt = this.add.text(x, y, spec.label, {
+        fontSize: '18px', fill: '#dde8ff', fontFamily: '"Arial Black", Arial, sans-serif',
+      }).setOrigin(0.5);
+      bg.on('pointerdown', () => { bg.setFillStyle(0x33475e); spec.fn(); });
+      bg.on('pointerup',   () => bg.setFillStyle(fill));
+      bg.on('pointerout',  () => bg.setFillStyle(fill));
+      this.vkKeys.push(bg, txt);
+    };
+    rows.forEach((row, r) => {
+      const y = topY + r * (KEY_H + GAP);
+      const rowWidth = row.reduce((s, k) => s + k.w, 0) + (row.length - 1) * GAP;
+      let x = (W - rowWidth) / 2 + row[0].w / 2;
+      row.forEach((spec, i) => {
+        makeKey(x, y, spec);
+        if (i < row.length - 1) x += spec.w / 2 + GAP + row[i + 1].w / 2;
+      });
+    });
   }
 }
 
