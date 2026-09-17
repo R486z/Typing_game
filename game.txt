@@ -40,6 +40,7 @@ const DIFF_LABELS = [
 // 'legacy' covers old leaderboard entries saved before mode-tracking existed.
 const MODE_META = {
   tricky:      { label: 'Tricky Words',   short: 'Tricky',    color: '#ffcc44' },
+  science:     { label: 'Science',        short: 'Science',   color: '#44ffaa' },
   typing:      { label: 'Typing Drill',   short: 'Typing',    color: '#66aaff' },
   translation: { label: 'Word Translate', short: 'Translate', color: '#44ffaa' },
   story:       { label: 'Story Mode',     short: 'Story',     color: '#ff8844' },
@@ -50,29 +51,126 @@ function modeMeta(id) { return MODE_META[id] || MODE_META.legacy; }
 /* ── Word pool ─────────────────────────────────────────────────────────────── */
 let wordPool              = [];  // Random Words > Typing: L1/L2/L3 falling words
 let typingTranslationPool = [];  // Random Words > Translate: common EN↔SK vocabulary
-let trickyUnits            = {}; // Tricky Words: { "Unit 0 words": [{en,sk}, ...], "Nationalities": [...] }
+let trickyUnits            = {}; // Lessons by id: { "en-unit0": [{en,sk}, ...], "sci-w1": [...] }
 let storyUnits             = {}; // Story Mode:   { "Unit 0 words": [{en,sk,imageKey}, ...] } — only entries with a loaded picture
 
-// The menu's 2-level structure: category -> list of selectable (mechanic, unit) items.
-// `unit` is a key into trickyUnits/storyUnits, or null for the generic Random Words pools.
-// Add more units/items here later by extending this list + tricky_words.js.
-const MENU_TREE = {
-  tricky: {
-    label: 'Tricky Words', icon: '🎯', desc: 'your custom vocab',
-    items: [
-      { mechanic: 'translation', unit: 'Unit 0 words',  label: 'Translate',  sub: 'Unit 0 words' },
-      { mechanic: 'story',       unit: 'Unit 0 words',  label: 'Story Mode', sub: 'Unit 0 words' },
-      { mechanic: 'translation', unit: 'Nationalities', label: 'Nationalities', sub: 'Unit 0' },
-    ],
+/* ── Menu structure: subjects -> lessons -> modes ──────────────────────────────
+   The menu is now 2 levels deep:
+
+     Home              English / Science / Random Words
+       └─ Subject      a table: rows = lessons (newest first), columns = modes
+
+   A "lesson" is one week's (or one topic's) word list. Lessons come from the
+   data files (english_words.js / science_words.js) and are registered into
+   `trickyUnits` under their id, so the falling-word game can use them
+   unchanged. Adding a new week every week means editing ONLY the data file —
+   no changes anywhere in this file. */
+
+const SUBJECTS = {
+  english: {
+    label: 'English — Tricky words', short: 'English', icon: '🎯', color: '#66aaff',
+    colorHex: 0x66aaff, lbMode: 'tricky',
+    source: 'english_words.js',
+  },
+  science: {
+    label: 'Science', short: 'Science', icon: '🔬', color: '#44ffaa',
+    colorHex: 0x44ffaa, lbMode: 'science',
+    source: 'science_words.js',
   },
   random: {
-    label: 'Random Words', icon: '🎲', desc: 'built-in word lists',
-    items: [
-      { mechanic: 'typing',      unit: null, label: 'Typing',    sub: 'speed training' },
-      { mechanic: 'translation', unit: null, label: 'Translate', sub: 'EN ↔ SK vocab' },
-    ],
+    label: 'Random words', short: 'Random', icon: '🎲', color: '#ffcc44',
+    colorHex: 0xffcc44, lbMode: 'translation',
+    source: null,   // built-in pools, no lessons
   },
 };
+
+// The three mode columns of a subject table. `mechanic` is what the game
+// engine understands; `scene` is where "START" sends the player.
+// Story Mode is intentionally not listed here for now (the code still exists
+// and works) — see TODO at the bottom of this file.
+const MODES = [
+  { id: 'study', label: 'Štúdium',        icon: '📖', scene: 'Study', mechanic: null,
+    desc: 'Celý zoznam slovíčok lekcie — bez hry, len na prečítanie.' },
+  { id: 'train', label: 'Tréning',        icon: '⚡', scene: 'Train', mechanic: null,
+    desc: 'Nový tréningový mód — pripravujeme.', soon: true },
+  { id: 'drop',  label: 'Padajúce slová', icon: '⬇',  scene: 'Game',  mechanic: 'translation',
+    desc: 'Slovíčka padajú z vrchu — napíš preklad, kým dopadnú.' },
+];
+function modeById(id) { return MODES.find(m => m.id === id) || MODES[0]; }
+
+/* Lessons per subject, in chronological order (oldest first) as authored in
+   the data files. The menu displays them newest-first.
+   Shape: { id, label, topic, group, words: [{en,sk}], sides? } */
+let lessons = { english: [], science: [] };
+
+function lessonsFor(subject) { return lessons[subject] || []; }
+function lessonById(subject, id) { return lessonsFor(subject).find(l => l.id === id) || null; }
+
+/* Newest-first, grouped for display. Group order follows first appearance in
+   the newest-first list, so the current month always sits on top. */
+function lessonGroups(subject) {
+  const out = [];
+  for (const l of [...lessonsFor(subject)].reverse()) {
+    const name = l.group || 'Lekcie';
+    let g = out.find(x => x.name === name);
+    if (!g) { g = { name, lessons: [] }; out.push(g); }
+    g.lessons.push(l);
+  }
+  return out;
+}
+
+/* How many lessons can be selected at once. Set to 1 for now (one checkbox
+   at a time, as agreed); raising this number is all that's needed to allow
+   "play weeks 2+3+4+5 together" — everything downstream already merges the
+   word lists of a multi-lesson selection. */
+const MAX_SELECTED_LESSONS = 1;
+
+// Merged, de-duplicated word list for a selection of lessons.
+function wordsForSelection(subject, ids) {
+  const seen = new Set(); const out = [];
+  for (const id of ids) {
+    for (const p of (lessonById(subject, id)?.words || [])) {
+      const k = `${p.en}|${p.sk}`;
+      if (seen.has(k)) continue;
+      seen.add(k); out.push(p);
+    }
+  }
+  return out;
+}
+
+/* Makes a selection playable by the game engine. A single lesson plays under
+   its own id (so the leaderboard/labels stay meaningful); several lessons get
+   merged into one temporary combined unit. */
+function unitForSelection(subject, ids) {
+  if (ids.length === 1) return ids[0];
+  const key = `__combo__${subject}`;
+  trickyUnits[key] = wordsForSelection(subject, ids);
+  UNIT_LABELS[key] = { left: 'EN', right: 'SK' };
+  return key;
+}
+
+function selectionLabel(subject, ids) {
+  if (!ids.length) return '';
+  if (ids.length === 1) return lessonById(subject, ids[0])?.label || ids[0];
+  return `${ids.length} lekcie`;
+}
+
+/* Menu state kept outside the scenes, so going Game/Study → back to the
+   lesson table restores what was selected and the chosen difficulty. */
+const MENU_STATE = {
+  level: 3,
+  sel: { english: { ids: [], mode: null }, science: { ids: [], mode: null } },
+  randomItem: 0,
+};
+function selOf(subject) {
+  return (MENU_STATE.sel[subject] ||= { ids: [], mode: null });
+}
+
+// Random words keeps its old, lesson-free shape: pick a mechanic and play.
+const RANDOM_ITEMS = [
+  { mechanic: 'typing',      label: 'Typing',    sub: 'rýchlostný tréning písania' },
+  { mechanic: 'translation', label: 'Translate', sub: 'EN ↔ SK bežná slovná zásoba' },
+];
 
 // Maps an in-game mechanic + unit to the leaderboard's MODE_META key. Keeps
 // the leaderboard's categories simple (Tricky / Typing / Translate / Story)
@@ -682,25 +780,47 @@ async function loadWords() {
   {en:'world',sk:'svet'},{en:'music',sk:'hudba'},{en:'sport',sk:'šport'}
 ];
   }
-  // Tricky Words — loaded from tricky_words.js (no fetch, works from file://).
-  // window.TRICKY_WORDS is now an object of named units: { "Unit name": "en|sk\n..." }
+  /* ── Lessons ──────────────────────────────────────────────────────────────
+     Loaded from english_words.js / science_words.js (plain <script> globals,
+     so they work even from file:// without a local server). Each lesson is
+     registered into trickyUnits under its id — that's the format the falling
+     word game already understands, so nothing in the game engine changes when
+     a new week is added. */
   trickyUnits = {};
-  if (window.TRICKY_WORDS && typeof window.TRICKY_WORDS === 'object') {
-    for (const [unitName, text] of Object.entries(window.TRICKY_WORDS)) {
-      const pairs = parseTranslationWords(text);
-      if (pairs.length) trickyUnits[unitName] = pairs;
-    }
-  }
-  // "Nationalities" unit — its own .txt file (Country|Nationality format),
-  // fetched separately so it's easy to edit without touching tricky_words.js.
+  lessons = { english: [], science: [] };
+
+  const addLessons = (subject, raw) => {
+    if (!Array.isArray(raw)) return;
+    raw.forEach((def, i) => {
+      const id    = def.id || `${subject}-${i + 1}`;
+      const pairs = Array.isArray(def.words) ? def.words : parseTranslationWords(def.words || '');
+      if (!pairs.length) return;   // empty lesson (e.g. template block) — skip
+      lessons[subject].push({
+        id,
+        label: def.label || id,
+        topic: def.topic || '',
+        group: def.group || 'Lekcie',
+        words: pairs,
+      });
+      trickyUnits[id] = pairs;
+      if (def.sides) UNIT_LABELS[id] = def.sides;
+    });
+  };
+
+  addLessons('english', window.ENGLISH_LESSONS);
+  addLessons('science', window.SCIENCE_LESSONS);
+
+  /* "Nationalities" keeps its own .txt file (Country|Nationality) — it is a
+     topic, not a week, so it lands in its own group at the bottom of the
+     English table. */
+  let natPairs = [];
   try {
     const r = await fetch('nationality.txt');
     if (!r.ok) throw 0;
-    const pairs = parseTranslationWords(await r.text());
-    if (!pairs.length) throw 0;
-    trickyUnits['Nationalities'] = pairs;
+    natPairs = parseTranslationWords(await r.text());
+    if (!natPairs.length) throw 0;
   } catch {
-    trickyUnits['Nationalities'] = [
+    natPairs = [
       { en: 'greece', sk: 'greek' }, { en: 'thailand', sk: 'thai' },
       { en: 'the united states of america', sk: 'american' },
       { en: 'new zealand', sk: 'new zealander' }, { en: 'india', sk: 'indian' },
@@ -710,6 +830,29 @@ async function loadWords() {
       { en: 'ukraine', sk: 'ukrainian' }, { en: 'czech republic', sk: 'czech' },
       { en: 'austria', sk: 'austrian' },
     ];
+  }
+  // Unshift = oldest, so it stays below the weekly lessons in the newest-first menu.
+  lessons.english.unshift({
+    id: 'Nationalities', label: 'Nationalities', topic: 'krajiny a národnosti',
+    group: 'Témy', words: natPairs,
+  });
+  trickyUnits['Nationalities'] = natPairs;
+  UNIT_LABELS['Nationalities'] = { left: 'Country', right: 'Nationality' };
+
+  /* Backwards compatibility: an older tricky_words.js (window.TRICKY_WORDS =
+     { "Unit name": "en|sk..." }) still works — its units show up as English
+     lessons in a "Staršie" group. Safe to delete once english_words.js holds
+     everything. */
+  if (window.TRICKY_WORDS && typeof window.TRICKY_WORDS === 'object') {
+    for (const [unitName, text] of Object.entries(window.TRICKY_WORDS)) {
+      if (lessons.english.some(l => l.id === unitName)) continue;
+      const pairs = parseTranslationWords(text);
+      if (!pairs.length) continue;
+      lessons.english.unshift({
+        id: unitName, label: unitName, topic: '', group: 'Staršie', words: pairs,
+      });
+      trickyUnits[unitName] = pairs;
+    }
   }
 }
 
@@ -923,108 +1066,140 @@ class PreloadScene extends Phaser.Scene {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   MENU SCENE
+   MENU — shared bits
+   ---------------------------------------------------------------------------
+   Three screens share a look: a back arrow + title header, and (where a game
+   can be started) a bottom bar with the difficulty selector, the current
+   selection and a START button. Both are built by the helpers below so the
+   screens stay short and consistent.
 ════════════════════════════════════════════════════════════════════════════ */
-class MenuScene extends Phaser.Scene {
+
+/* Header with an optional back button. Returns nothing — it just draws. */
+function menuHeader(scene, title, subtitle, accent, onBack) {
+  scene.add.rectangle(W / 2, H / 2, W, H, 0x1a1a2e);
+  drawGrid(scene);
+
+  if (onBack) {
+    const bg = scene.add.rectangle(56, 32, 88, 30, 0x1c2a3a)
+      .setStrokeStyle(2, 0x334455).setInteractive({ useHandCursor: true });
+    const txt = scene.add.text(56, 32, '← späť', {
+      fontSize: '13px', fill: '#9aaabb', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+    bg.on('pointerover', () => bg.setFillStyle(0x263444));
+    bg.on('pointerout',  () => bg.setFillStyle(0x1c2a3a));
+    bg.on('pointerdown', onBack);
+    scene.input.keyboard.on('keydown-ESC', onBack);
+    void txt;
+  }
+
+  scene.add.text(W / 2, 26, title, {
+    fontSize: '26px', fill: accent,
+    fontFamily: '"Arial Black", Arial, sans-serif',
+  }).setOrigin(0.5, 0);
+
+  if (subtitle) {
+    scene.add.text(W / 2, 56, subtitle, {
+      fontSize: '12px', fill: '#667788', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5, 0);
+  }
+}
+
+/* Compact difficulty picker (0–9) — always visible on any screen that can
+   start the falling-word game. Writes straight into MENU_STATE.level and
+   calls onChange so the screen can refresh its own texts. */
+function difficultyPicker(scene, x, y, onChange) {
+  scene.add.text(x, y - 26, 'OBTIAŽNOSŤ', {
+    fontSize: '11px', fill: '#8899bb',
+    fontFamily: '"Arial Black", Arial, sans-serif', letterSpacing: 4,
+  }).setOrigin(0.5);
+
+  const arrowCfg = { fontSize: '26px', fill: '#334466', fontFamily: '"Arial Black", Arial' };
+  const lArr = scene.add.text(x - 62, y + 2, '◄', arrowCfg).setOrigin(0.5).setInteractive({ useHandCursor: true });
+  const rArr = scene.add.text(x + 62, y + 2, '►', arrowCfg).setOrigin(0.5).setInteractive({ useHandCursor: true });
+  const num  = scene.add.text(x, y, '3', {
+    fontSize: '40px', fill: LEVEL_COLORS[3],
+    fontFamily: '"Arial Black", Arial, sans-serif', stroke: '#000033', strokeThickness: 4,
+  }).setOrigin(0.5);
+  const desc = scene.add.text(x, y + 28, '', {
+    fontSize: '12px', fill: LEVEL_COLORS[3], fontFamily: 'Arial, sans-serif',
+  }).setOrigin(0.5);
+
+  const refresh = () => {
+    const lv = MENU_STATE.level;
+    num.setText(`${lv}`).setStyle({ fill: LEVEL_COLORS[lv] });
+    desc.setText(DIFF_LABELS[lv]).setStyle({ fill: LEVEL_COLORS[lv] });
+    if (onChange) onChange();
+  };
+  const step = d => { MENU_STATE.level = Phaser.Math.Clamp(MENU_STATE.level + d, 0, 9); refresh(); };
+
+  [[lArr, -1], [rArr, 1]].forEach(([arr, d]) => {
+    arr.on('pointerover', () => arr.setStyle({ fill: '#aabbcc' }));
+    arr.on('pointerout',  () => arr.setStyle({ fill: '#334466' }));
+    arr.on('pointerdown', () => step(d));
+  });
+  scene.input.keyboard.on('keydown', e => {
+    if (e.key >= '0' && e.key <= '9') { MENU_STATE.level = parseInt(e.key, 10); refresh(); }
+  });
+
+  refresh();
+  return { refresh };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   HOME SCENE  (scene key stays 'Menu' — every "back to menu" button in the
+   game already points there)
+════════════════════════════════════════════════════════════════════════════ */
+class HomeScene extends Phaser.Scene {
   constructor() { super('Menu'); }
 
   create() {
-    this.selectedLevel = 3;
-    // Default selection: first item of the first category (mirrors the old default).
-    this.category = 'tricky';
-    this.mechanic = MENU_TREE.tricky.items[0].mechanic;
-    this.unit     = MENU_TREE.tricky.items[0].unit;
-
     this.add.rectangle(W / 2, H / 2, W, H, 0x1a1a2e);
     drawGrid(this);
 
-    // ── Title ────────────────────────────────────────────────────────────────
-    this.add.text(W / 2, 48, 'WORD DROP', {
-      fontSize: '58px', fill: '#00ccff',
+    this.add.text(W / 2, 40, 'WORD DROP', {
+      fontSize: '52px', fill: '#00ccff',
       fontFamily: '"Arial Black", Arial, sans-serif',
       stroke: '#004488', strokeThickness: 8,
     }).setOrigin(0.5);
 
-    // ── Difficulty selector ──────────────────────────────────────────────────
-    this.add.text(W / 2, 108, 'DIFFICULTY', {
-      fontSize: '13px', fill: '#8899bb',
-      fontFamily: '"Arial Black", Arial, sans-serif', letterSpacing: 5,
+    this.add.text(W / 2, 84, 'Vyber si, čo sa chceš učiť', {
+      fontSize: '14px', fill: '#8899bb', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5);
 
-    const arrowCfg = { fontSize: '34px', fill: '#334466', fontFamily: '"Arial Black", Arial' };
-    const lArr = this.add.text(W / 2 - 92, 158, '◄', arrowCfg).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    const rArr = this.add.text(W / 2 + 92, 158, '►', arrowCfg).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    lArr.on('pointerover', () => lArr.setStyle({ fill: '#aabbcc' }));
-    lArr.on('pointerout',  () => lArr.setStyle({ fill: '#334466' }));
-    lArr.on('pointerdown', () => { this.selectedLevel = Math.max(0, this.selectedLevel - 1); this.refreshLevel(); });
-    rArr.on('pointerover', () => rArr.setStyle({ fill: '#aabbcc' }));
-    rArr.on('pointerout',  () => rArr.setStyle({ fill: '#334466' }));
-    rArr.on('pointerdown', () => { this.selectedLevel = Math.min(9, this.selectedLevel + 1); this.refreshLevel(); });
-
-    this.numTxt = this.add.text(W / 2, 153, '3', {
-      fontSize: '68px', fill: LEVEL_COLORS[3],
-      fontFamily: '"Arial Black", Arial, sans-serif',
-      stroke: '#000033', strokeThickness: 5,
-    }).setOrigin(0.5);
-
-    this.descTxt = this.add.text(W / 2, 205, '', {
-      fontSize: '15px', fill: LEVEL_COLORS[3], fontFamily: 'Arial, sans-serif',
-    }).setOrigin(0.5);
-
-    this.infoTxt = this.add.text(W / 2, 225, '', {
-      fontSize: '12px', fill: '#445566', fontFamily: 'Arial, sans-serif',
-    }).setOrigin(0.5);
-
-    this.add.text(W / 2, 242, 'Press 0 – 9 to select', {
-      fontSize: '11px', fill: '#2a3a4a', fontFamily: 'Arial, sans-serif',
-    }).setOrigin(0.5);
-
-    // ── GAME MODE: category row (Tricky Words / Random Words) ────────────────
-    this.add.text(W / 2, 264, 'GAME MODE', {
-      fontSize: '13px', fill: '#8899bb',
-      fontFamily: '"Arial Black", Arial, sans-serif', letterSpacing: 5,
-    }).setOrigin(0.5);
-
-    this.catCfg = Object.entries(MENU_TREE).map(([id, c]) => ({ id, ...c }));
-    const CW = 220, CH = 32, CGAP = 16;
-    const catStartX = (W - (this.catCfg.length * CW + (this.catCfg.length - 1) * CGAP)) / 2 + CW / 2;
-    this.catBgs = []; this.catTxts = [];
-    this.catCfg.forEach((cfg, i) => {
-      const x = catStartX + i * (CW + CGAP), y = 292;
-      const bg = this.add.rectangle(x, y, CW, CH, 0x141e2a).setStrokeStyle(2, 0x223344).setInteractive({ useHandCursor: true });
-      const txt = this.add.text(x, y, `${cfg.icon}  ${cfg.label}`, {
-        fontSize: '13px', fill: '#8899aa', fontFamily: '"Arial Black", Arial, sans-serif',
+    /* One card per subject. Adding a fourth subject later = one more entry in
+       SUBJECTS; the cards lay themselves out from that list. */
+    const ids = Object.keys(SUBJECTS);
+    const CH = 84, GAP = 14, top = 124;
+    ids.forEach((id, i) => {
+      const s = SUBJECTS[id];
+      const y = top + i * (CH + GAP) + CH / 2;
+      const bg = this.add.rectangle(W / 2, y, 660, CH, 0x1c2a3a)
+        .setStrokeStyle(2, 0x2a3c50).setInteractive({ useHandCursor: true });
+      this.add.rectangle(W / 2 - 330 + 3, y, 6, CH, s.colorHex);   // colour bar
+      this.add.text(W / 2 - 300, y, s.icon, { fontSize: '30px' }).setOrigin(0.5);
+      this.add.text(W / 2 - 262, y - 14, s.label, {
+        fontSize: '19px', fill: '#ffffff', fontFamily: '"Arial Black", Arial, sans-serif',
+      }).setOrigin(0, 0.5);
+      this.add.text(W / 2 - 262, y + 13, this.metaFor(id), {
+        fontSize: '12px', fill: '#8899aa', fontFamily: 'Arial, sans-serif',
+      }).setOrigin(0, 0.5);
+      this.add.text(W / 2 + 300, y, '›', {
+        fontSize: '30px', fill: '#445566', fontFamily: '"Arial Black", Arial',
       }).setOrigin(0.5);
-      this.catBgs.push(bg); this.catTxts.push(txt);
-      bg.on('pointerover', () => { if (this.category !== cfg.id) bg.setFillStyle(0x1c2838); });
-      bg.on('pointerout',  () => { if (this.category !== cfg.id) bg.setFillStyle(0x141e2a); });
+
+      bg.on('pointerover', () => bg.setFillStyle(0x263850).setStrokeStyle(2, s.colorHex));
+      bg.on('pointerout',  () => bg.setFillStyle(0x1c2a3a).setStrokeStyle(2, 0x2a3c50));
       bg.on('pointerdown', () => {
-        this.category = cfg.id;
-        const first = MENU_TREE[cfg.id].items[0];
-        this.mechanic = first.mechanic; this.unit = first.unit;
-        this.refreshCategory(); this.refreshItems(); this.refreshMode(); this.refreshLevel();
+        if (id === 'random') this.scene.start('Random');
+        else this.scene.start('Subject', { subject: id });
       });
     });
 
-    // ── Item row: options for the currently selected category ────────────────
-    this.itemElems = [];
-    this.refreshItems();
-
-    this.modeDesc = this.add.text(W / 2, 378, '', {
-      fontSize: '12px', fill: '#556677', fontFamily: 'Arial, sans-serif',
-    }).setOrigin(0.5);
-
-    // ── START button ─────────────────────────────────────────────────────────
-    const sb = makeButton(this, W / 2, 418, 250, 52, 0x0066bb, 'START GAME', 26);
-    sb.bg.on('pointerdown', () => this.scene.start('Game', {
-      level: this.selectedLevel, mode: this.mechanic, unit: this.unit,
-    }));
-
-    // ── Leaderboard + How to Play + on-screen keyboard toggle ────────────────
-    const mkSmBtn = (x, w, icon, label, onClick) => {
-      const bg = this.add.rectangle(x, 478, w, 38, 0x1c2a3a)
+    /* Bottom row: leaderboard / how to play / on-screen keyboard toggle */
+    const mkSmBtn = (x, w, label, onClick) => {
+      const bg = this.add.rectangle(x, 512, w, 38, 0x1c2a3a)
         .setStrokeStyle(2, 0x334455).setInteractive({ useHandCursor: true });
-      const txt = this.add.text(x, 478, `${icon}  ${label}`, {
+      const txt = this.add.text(x, 512, label, {
         fontSize: '13px', fill: '#aabbcc', fontFamily: 'Arial, sans-serif',
       }).setOrigin(0.5);
       bg.on('pointerover', () => bg.setFillStyle(0x263444));
@@ -1032,111 +1207,461 @@ class MenuScene extends Phaser.Scene {
       bg.on('pointerdown', onClick);
       return { bg, txt };
     };
-    mkSmBtn(W / 2 - 260, 240, '🏆', 'LEADERBOARD', () => this.scene.start('Leaderboard'));
-    mkSmBtn(W / 2 + 10,  200, '❓', 'HOW TO PLAY',  () => this.scene.start('HowToPlay'));
-
-    this.vkBtn = mkSmBtn(W / 2 + 260, 210, '⌨️', '', () => {
-      vkEnabled = !vkEnabled;
-      this.refreshVk();
-    });
+    mkSmBtn(W / 2 - 260, 240, '🏆  LEADERBOARD', () => this.scene.start('Leaderboard'));
+    mkSmBtn(W / 2 + 10,  200, '❓  AKO HRAŤ',     () => this.scene.start('HowToPlay'));
+    this.vkBtn = mkSmBtn(W / 2 + 260, 210, '', () => { vkEnabled = !vkEnabled; this.refreshVk(); });
     this.refreshVk();
 
-    // Keyboard: 0-9 shortcut
-    this.input.keyboard.on('keydown', (e) => {
-      if (e.key >= '0' && e.key <= '9') { this.selectedLevel = parseInt(e.key, 10); this.refreshLevel(); }
-    });
+    this.add.text(W / 2, 556, 'Nové lekcie pribúdajú každý týždeň — stačí ich dopísať do english_words.js / science_words.js', {
+      fontSize: '11px', fill: '#33445a', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+  }
 
-    this.refreshCategory();
-    this.refreshLevel();
-    this.refreshMode();
+  metaFor(id) {
+    if (id === 'random') return `${typingTranslationPool.length} slov · vstavané zoznamy`;
+    const ls = lessonsFor(id);
+    if (!ls.length) return `⚠  žiadne lekcie — pridaj ich do ${SUBJECTS[id].source}`;
+    const words = ls.reduce((n, l) => n + l.words.length, 0);
+    return `${ls.length} ${ls.length === 1 ? 'lekcia' : ls.length < 5 ? 'lekcie' : 'lekcií'} · ${words} slovíčok`;
   }
 
   refreshVk() {
-    const on = vkEnabled;
-    this.vkBtn.txt.setText(`⌨️  KEYBOARD: ${on ? 'ON' : 'OFF'}`);
-    this.vkBtn.txt.setStyle({ fill: on ? '#66ffaa' : '#778899' });
-    this.vkBtn.bg.setStrokeStyle(2, on ? 0x2a6a4a : 0x334455);
+    this.vkBtn.txt.setText(`⌨️  KLÁVESNICA: ${vkEnabled ? 'ON' : 'OFF'}`);
+    this.vkBtn.txt.setStyle({ fill: vkEnabled ? '#66ffaa' : '#778899' });
+    this.vkBtn.bg.setStrokeStyle(2, vkEnabled ? 0x2a6a4a : 0x334455);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   SUBJECT SCENE — the lesson table
+   ---------------------------------------------------------------------------
+   Rows = lessons (newest first, grouped by the `group` field from the data
+   file, each group collapsible). Columns = modes, labelled once in a fixed
+   header so nothing repeats per row. The list scrolls (wheel or drag), so the
+   table keeps working when there are 50 lessons.
+════════════════════════════════════════════════════════════════════════════ */
+class SubjectScene extends Phaser.Scene {
+  constructor() { super('Subject'); }
+
+  init(data) {
+    this.subject = data.subject && SUBJECTS[data.subject] ? data.subject : 'english';
+    this.cfg     = SUBJECTS[this.subject];
+    this.sel     = selOf(this.subject);
+    this.collapsed = this.collapsed || {};   // group name -> true
   }
 
-  refreshCategory() {
-    this.catCfg.forEach((cfg, i) => {
-      const sel = cfg.id === this.category;
-      this.catBgs[i].setFillStyle(sel ? 0x22334a : 0x141e2a).setStrokeStyle(2, sel ? 0xffffff : 0x223344);
-      this.catTxts[i].setStyle({ fill: sel ? '#ffffff' : '#8899aa' });
+  create() {
+    const VIEW = { x: 40, y: 104, w: 720, h: 306 };   // scrollable list viewport
+    this.VIEW = VIEW;
+    this.colX = { study: 500, train: 590, drop: 680 };
+
+    menuHeader(this, this.cfg.label, 'Vyber lekciu a mód, potom stlač Spustiť',
+      this.cfg.color, () => this.scene.start('Menu'));
+
+    /* ── Fixed column header ── */
+    this.add.text(VIEW.x + 8, 88, 'LEKCIA', {
+      fontSize: '11px', fill: '#667788',
+      fontFamily: '"Arial Black", Arial, sans-serif', letterSpacing: 2,
+    }).setOrigin(0, 1);
+
+    MODES.forEach(m => {
+      const x = this.colX[m.id];
+      this.add.text(x, 70, m.icon, { fontSize: '15px' }).setOrigin(0.5);
+      this.add.text(x, 86, m.label, {
+        fontSize: '10px', fill: m.soon ? '#8a7a55' : '#aabbcc',
+        fontFamily: '"Arial Black", Arial, sans-serif', align: 'center',
+        wordWrap: { width: 84 },
+      }).setOrigin(0.5, 0.5);
     });
+    this.add.rectangle(W / 2, VIEW.y - 4, 720, 1, 0x2a3c50);
+
+    /* ── Scrollable list ── */
+    this.listCt = this.add.container(0, 0);
+    const maskG = this.make.graphics({ add: false });
+    maskG.fillRect(VIEW.x, VIEW.y, VIEW.w, VIEW.h);
+    this.listCt.setMask(maskG.createGeometryMask());
+
+    this.scrollY = 0;
+    this.contentH = 0;
+    this.scrollBar = this.add.rectangle(VIEW.x + VIEW.w - 3, VIEW.y, 4, 40, 0x33475e)
+      .setOrigin(0.5, 0);
+
+    this.buildList();
+
+    // Wheel + drag scrolling
+    this.input.on('wheel', (p, go, dx, dy) => this.scrollBy(dy * 0.5));
+    this.input.on('pointermove', p => {
+      if (!p.isDown) return;
+      if (p.y < VIEW.y || p.y > VIEW.y + VIEW.h) return;
+      this.scrollBy(-(p.y - p.prevPosition.y));
+    });
+
+    /* ── Bottom bar: difficulty + selection + START ── */
+    this.add.rectangle(W / 2, 424, 720, 1, 0x2a3c50);
+    this.diff = difficultyPicker(this, 150, 476, () => this.refreshInfo());
+
+    this.selTxt = this.add.text(300, 452, '', {
+      fontSize: '15px', fill: '#ffffff', fontFamily: '"Arial Black", Arial, sans-serif',
+      wordWrap: { width: 400 },
+    }).setOrigin(0, 0);
+    this.infoTxt = this.add.text(300, 476, '', {
+      fontSize: '12px', fill: '#778899', fontFamily: 'Arial, sans-serif',
+      wordWrap: { width: 420 },
+    }).setOrigin(0, 0);
+
+    this.startBtn = makeButton(this, 600, 534, 260, 46, 0x0066bb, 'SPUSTIŤ', 22);
+    this.startBtn.bg.on('pointerdown', () => this.start());
+
+    this.hintTxt = this.add.text(40, 534, 'Zatiaľ sa dá vybrať\njedna lekcia naraz.', {
+      fontSize: '11px', fill: '#33445a', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0, 0.5);
+
+    this.refreshInfo();
   }
 
-  // Rebuilds the item row for the currently selected category.
-  refreshItems() {
-    for (const o of this.itemElems) o.destroy();
-    this.itemElems = [];
+  /* Rebuilds every row. Cheap enough to just redo on any change (selection,
+     collapsing a group) — keeps the state handling in one place. */
+  buildList() {
+    this.listCt.removeAll(true);
+    const VIEW = this.VIEW;
+    let y = VIEW.y + 6;
+    const groups = lessonGroups(this.subject);
 
-    const items = MENU_TREE[this.category].items;
-    const IW = 220, IH = 52, IGAP = 10;
-    const startX = (W - (items.length * IW + (items.length - 1) * IGAP)) / 2 + IW / 2;
+    if (!groups.length) {
+      this.listCt.add(this.add.text(W / 2, VIEW.y + 80,
+        `Žiadne lekcie.\nPridaj prvú do ${this.cfg.source} a stlač F5.`, {
+          fontSize: '15px', fill: '#445566', fontFamily: 'Arial, sans-serif', align: 'center',
+        }).setOrigin(0.5));
+      this.contentH = 0;
+      this.applyScroll();
+      return;
+    }
 
-    this.itemBgs = []; this.itemTxts = []; this.itemSubTxts = [];
-    items.forEach((item, i) => {
-      const x = startX + i * (IW + IGAP), y = 334;
-      const bg = this.add.rectangle(x, y, IW, IH, 0x1c2a3a).setStrokeStyle(2, 0x334455).setInteractive({ useHandCursor: true });
-      const txt = this.add.text(x, y - 10, item.label, {
-        fontSize: '14px', fill: '#aabbcc', fontFamily: '"Arial Black", Arial, sans-serif',
+    groups.forEach(g => {
+      const open = !this.collapsed[g.name];
+
+      // Group header (click to collapse/expand)
+      const hBg = this.add.rectangle(W / 2, y + 13, VIEW.w - 16, 26, 0x16202c)
+        .setInteractive({ useHandCursor: true });
+      const hTxt = this.add.text(VIEW.x + 16, y + 13, `${open ? '▾' : '▸'}  ${g.name}`, {
+        fontSize: '12px', fill: '#8899aa', fontFamily: '"Arial Black", Arial, sans-serif',
+      }).setOrigin(0, 0.5);
+      const hCnt = this.add.text(VIEW.x + VIEW.w - 24, y + 13,
+        `${g.lessons.length} ${g.lessons.length === 1 ? 'lekcia' : 'lekcie'}`, {
+          fontSize: '11px', fill: '#556677', fontFamily: 'Arial, sans-serif',
+        }).setOrigin(1, 0.5);
+      hBg.on('pointerdown', p => {
+        if (!this.inView(p)) return;   // row scrolled out of sight (mask hides
+        if (!open) {                   // the pixels, but not the hit area)
+          delete this.collapsed[g.name];
+        } else {
+          this.collapsed[g.name] = true;
+        }
+        this.buildList();
+      });
+      this.listCt.add([hBg, hTxt, hCnt]);
+      y += 30;
+
+      if (!open) { y += 4; return; }
+
+      g.lessons.forEach(l => {
+        const rowY = y + 18;
+        this.listCt.add(this.add.rectangle(W / 2, y, VIEW.w - 16, 1, 0x223040));
+        this.listCt.add(this.add.text(VIEW.x + 16, rowY - 7, l.label, {
+          fontSize: '15px', fill: '#dde6ee', fontFamily: 'Arial, sans-serif',
+        }).setOrigin(0, 0.5));
+        this.listCt.add(this.add.text(VIEW.x + 16, rowY + 10,
+          `${l.topic ? l.topic + '  ·  ' : ''}${l.words.length} slovíčok`, {
+            fontSize: '11px', fill: '#667788', fontFamily: 'Arial, sans-serif',
+          }).setOrigin(0, 0.5));
+
+        MODES.forEach(m => this.addCheckbox(this.colX[m.id], rowY, l.id, m.id));
+        y += 38;
+      });
+      y += 6;
+    });
+
+    this.contentH = y - VIEW.y;
+    this.applyScroll();
+  }
+
+  addCheckbox(x, y, lessonId, modeId) {
+    const on = this.sel.mode === modeId && this.sel.ids.includes(lessonId);
+    const box = this.add.rectangle(x, y, 22, 22, on ? this.cfg.colorHex : 0x16202c)
+      .setStrokeStyle(2, on ? this.cfg.colorHex : 0x33475e)
+      .setInteractive({ useHandCursor: true });
+    const tick = this.add.text(x, y - 1, on ? '✓' : '', {
+      fontSize: '14px', fill: '#0d1520', fontFamily: '"Arial Black", Arial',
+    }).setOrigin(0.5);
+    this.listCt.add([box, tick]);
+
+    // Tap = toggle, but ignore taps that were really a scroll drag.
+    let downY = null;
+    box.on('pointerdown', p => { downY = this.inView(p) ? p.y : null; });
+    box.on('pointerup', p => {
+      // A tap toggles; a drag was meant as scrolling, so it's ignored. Rows
+      // scrolled out of the viewport are ignored too — the mask hides their
+      // pixels but their hit area would still be clickable.
+      if (downY === null || !this.inView(p) || Math.abs(p.y - downY) > 8) { downY = null; return; }
+      downY = null;
+      this.toggle(lessonId, modeId);
+    });
+    box.on('pointerover', () => { if (!on) box.setStrokeStyle(2, this.cfg.colorHex); });
+    box.on('pointerout',  () => { if (!on) box.setStrokeStyle(2, 0x33475e); });
+  }
+
+  /* Selection rules: one mode at a time (a mix of "Study week 3" + "Drop
+     week 4" has no meaning), and up to MAX_SELECTED_LESSONS lessons inside
+     that mode. Raise that constant to allow several weeks at once. */
+  toggle(lessonId, modeId) {
+    const s = this.sel;
+    if (s.mode !== modeId) { s.mode = modeId; s.ids = [lessonId]; }
+    else if (s.ids.includes(lessonId)) {
+      s.ids = s.ids.filter(i => i !== lessonId);
+      if (!s.ids.length) s.mode = null;
+    } else if (s.ids.length < MAX_SELECTED_LESSONS) {
+      s.ids.push(lessonId);
+    } else {
+      s.ids = [lessonId];   // single-select behaviour: replace
+    }
+    this.buildList();
+    this.refreshInfo();
+  }
+
+  // Is the pointer inside the scrollable list area?
+  inView(p) {
+    return p.y >= this.VIEW.y && p.y <= this.VIEW.y + this.VIEW.h;
+  }
+
+  scrollBy(dy) {
+    const max = Math.max(0, this.contentH - this.VIEW.h);
+    this.scrollY = Phaser.Math.Clamp(this.scrollY + dy, 0, max);
+    this.applyScroll();
+  }
+
+  applyScroll() {
+    const max = Math.max(0, this.contentH - this.VIEW.h);
+    this.scrollY = Phaser.Math.Clamp(this.scrollY, 0, max);
+    this.listCt.y = -this.scrollY;
+
+    // Scrollbar: hidden when everything fits
+    if (max <= 0) { this.scrollBar.setVisible(false); return; }
+    const frac = this.VIEW.h / this.contentH;
+    const barH = Math.max(28, this.VIEW.h * frac);
+    this.scrollBar.setVisible(true).setSize(4, barH);
+    this.scrollBar.y = this.VIEW.y + (this.VIEW.h - barH) * (this.scrollY / max);
+  }
+
+  refreshInfo() {
+    const s = this.sel;
+    if (!s.mode || !s.ids.length) {
+      this.selTxt.setText('Nič nie je vybrané');
+      this.infoTxt.setText('Zaškrtni políčko v riadku lekcie a v stĺpci módu.');
+      this.startBtn.bg.setFillStyle(0x223244).disableInteractive();
+      this.startBtn.txt.setStyle({ fill: '#556677' });
+      return;
+    }
+    const m = modeById(s.mode);
+    const n = wordsForSelection(this.subject, s.ids).length;
+    this.selTxt.setText(`${selectionLabel(this.subject, s.ids)}  ·  ${m.label}`);
+    this.infoTxt.setText(`${m.desc}  (${n} slovíčok)`);
+    this.startBtn.bg.setFillStyle(0x0066bb).setInteractive({ useHandCursor: true });
+    this.startBtn.txt.setStyle({ fill: '#ffffff' });
+  }
+
+  start() {
+    const s = this.sel;
+    if (!s.mode || !s.ids.length) return;
+    const m    = modeById(s.mode);
+    const back = { scene: 'Subject', data: { subject: this.subject } };
+
+    if (m.scene === 'Study') {
+      this.scene.start('Study', { subject: this.subject, ids: [...s.ids], back });
+    } else if (m.scene === 'Train') {
+      this.scene.start('Train', { subject: this.subject, ids: [...s.ids], back });
+    } else {
+      this.scene.start('Game', {
+        level:  MENU_STATE.level,
+        mode:   m.mechanic,
+        unit:   unitForSelection(this.subject, s.ids),
+        lbMode: this.cfg.lbMode,
+        back,
+      });
+    }
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   RANDOM WORDS SCENE — no lessons here, just pick a mechanic and play
+════════════════════════════════════════════════════════════════════════════ */
+class RandomScene extends Phaser.Scene {
+  constructor() { super('Random'); }
+
+  create() {
+    const cfg = SUBJECTS.random;
+    menuHeader(this, cfg.label, 'Slová zo vstavaných zoznamov, bez väzby na lekcie',
+      cfg.color, () => this.scene.start('Menu'));
+
+    this.itemBgs = []; this.itemTxts = [];
+    RANDOM_ITEMS.forEach((item, i) => {
+      const y  = 140 + i * 84;
+      const bg = this.add.rectangle(W / 2, y, 560, 68, 0x1c2a3a)
+        .setStrokeStyle(2, 0x2a3c50).setInteractive({ useHandCursor: true });
+      const txt = this.add.text(W / 2, y - 11, item.label, {
+        fontSize: '18px', fill: '#ffffff', fontFamily: '"Arial Black", Arial, sans-serif',
       }).setOrigin(0.5);
-      const sub = this.add.text(x, y + 12, item.sub, {
-        fontSize: '11px', fill: '#778899', fontFamily: 'Arial, sans-serif',
+      this.add.text(W / 2, y + 14, item.sub, {
+        fontSize: '12px', fill: '#8899aa', fontFamily: 'Arial, sans-serif',
       }).setOrigin(0.5);
-      this.itemElems.push(bg, txt, sub);
-      this.itemBgs.push(bg); this.itemTxts.push(txt); this.itemSubTxts.push(sub);
-      bg.on('pointerover', () => { if (!(this.mechanic === item.mechanic && this.unit === item.unit)) bg.setFillStyle(0x263850); });
-      bg.on('pointerout',  () => { if (!(this.mechanic === item.mechanic && this.unit === item.unit)) bg.setFillStyle(0x1c2a3a); });
-      bg.on('pointerdown', () => {
-        this.mechanic = item.mechanic; this.unit = item.unit;
-        this.refreshItemSelection(); this.refreshMode(); this.refreshLevel();
+      this.itemBgs.push(bg); this.itemTxts.push(txt);
+      bg.on('pointerdown', () => { MENU_STATE.randomItem = i; this.refresh(); });
+    });
+
+    this.add.rectangle(W / 2, 330, 720, 1, 0x2a3c50);
+    difficultyPicker(this, 200, 390, () => {});
+
+    this.startBtn = makeButton(this, 560, 390, 260, 52, 0x0066bb, 'SPUSTIŤ', 24);
+    this.startBtn.bg.on('pointerdown', () => {
+      const item = RANDOM_ITEMS[MENU_STATE.randomItem];
+      this.scene.start('Game', {
+        level:  MENU_STATE.level,
+        mode:   item.mechanic,
+        unit:   null,
+        lbMode: item.mechanic === 'typing' ? 'typing' : 'translation',
+        back:   { scene: 'Random', data: {} },
       });
     });
-    this.refreshItemSelection();
+
+    this.refresh();
   }
 
-  refreshItemSelection() {
-    const items = MENU_TREE[this.category].items;
-    items.forEach((item, i) => {
-      const sel = this.mechanic === item.mechanic && this.unit === item.unit;
-      this.itemBgs[i].setFillStyle(sel ? 0x2a4a6a : 0x1c2a3a).setStrokeStyle(2, sel ? 0xffffff : 0x334455);
+  refresh() {
+    RANDOM_ITEMS.forEach((item, i) => {
+      const sel = i === MENU_STATE.randomItem;
+      this.itemBgs[i].setFillStyle(sel ? 0x2a4a6a : 0x1c2a3a)
+        .setStrokeStyle(2, sel ? 0xffcc44 : 0x2a3c50);
       this.itemTxts[i].setStyle({ fill: sel ? '#ffffff' : '#aabbcc' });
-      this.itemSubTxts[i].setStyle({ fill: sel ? '#ccddee' : '#778899' });
     });
   }
+}
 
-  refreshLevel() {
-    const lv = this.selectedLevel, b = LEVEL_CONFIG[lv];
-    this.numTxt.setText(`${lv}`).setStyle({ fill: LEVEL_COLORS[lv] });
-    this.descTxt.setText(DIFF_LABELS[lv]).setStyle({ fill: LEVEL_COLORS[lv] });
-    const slow = this.mechanic === 'translation' || this.mechanic === 'story';
-    const spd  = slow ? Math.round(b.speed * 0.7) : b.speed;
-    const intv = slow ? (b.interval * 2) / 1000 : b.interval / 1000;
-    this.infoTxt.setText(`${spd} px/s  ·  new word every ${intv}s`);
+/* ════════════════════════════════════════════════════════════════════════════
+   STUDY SCENE — the plain word list of the selected lesson(s), paged
+════════════════════════════════════════════════════════════════════════════ */
+class StudyScene extends Phaser.Scene {
+  constructor() { super('Study'); }
+
+  init(data) {
+    this.subject = data.subject || 'english';
+    this.ids     = data.ids || [];
+    this.back    = data.back || { scene: 'Menu', data: {} };
+    this.page    = 0;
   }
 
-  refreshMode() {
-    let desc = '', isWarn = false;
-    if (this.mechanic === 'typing') {
-      desc = 'Falling English words — type them as fast as you can';
-    } else if (this.mechanic === 'translation' && !this.unit) {
-      desc = 'Word appears in EN or SK — type the translation';
-    } else if (this.mechanic === 'translation' && this.unit) {
-      const n = (trickyUnits[this.unit] || []).length;
-      isWarn = n === 0;
-      desc = isWarn
-        ? `⚠  "${this.unit}" has no words yet — edit tricky_words.js and reload (F5)`
-        : `${this.unit}  ·  ${n} word pairs loaded`;
-    } else if (this.mechanic === 'story') {
-      const n = (storyUnits[this.unit] || []).length;
-      isWarn = n === 0;
-      desc = isWarn
-        ? `⚠  no pictures yet for "${this.unit}" — add .jpg/.png to images/story/`
-        : `${this.unit}  ·  ${n} pictures loaded`;
+  create() {
+    const cfg   = SUBJECTS[this.subject];
+    this.words  = wordsForSelection(this.subject, this.ids);
+    this.perPage = 16;
+
+    menuHeader(this, `📖  ${selectionLabel(this.subject, this.ids)}`,
+      'Prečítaj si slovíčka — potom ich skús v hre', cfg.color,
+      () => this.scene.start(this.back.scene, this.back.data));
+
+    this.rowsCt = this.add.container(0, 0);
+
+    this.pageTxt = this.add.text(W / 2, 520, '', {
+      fontSize: '12px', fill: '#667788', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+
+    const mk = (x, label, d) => {
+      const bg = this.add.rectangle(x, 520, 120, 34, 0x1c2a3a)
+        .setStrokeStyle(2, 0x334455).setInteractive({ useHandCursor: true });
+      this.add.text(x, 520, label, {
+        fontSize: '13px', fill: '#aabbcc', fontFamily: 'Arial, sans-serif',
+      }).setOrigin(0.5);
+      bg.on('pointerover', () => bg.setFillStyle(0x263444));
+      bg.on('pointerout',  () => bg.setFillStyle(0x1c2a3a));
+      bg.on('pointerdown', () => this.flip(d));
+    };
+    mk(W / 2 - 200, '◄ predošlé', -1);
+    mk(W / 2 + 200, 'ďalšie ►',    1);
+
+    this.render();
+  }
+
+  flip(d) {
+    const pages = Math.max(1, Math.ceil(this.words.length / this.perPage));
+    this.page = (this.page + d + pages) % pages;
+    this.render();
+  }
+
+  render() {
+    this.rowsCt.removeAll(true);
+    const cfg   = SUBJECTS[this.subject];
+    const pages = Math.max(1, Math.ceil(this.words.length / this.perPage));
+    const slice = this.words.slice(this.page * this.perPage, (this.page + 1) * this.perPage);
+
+    if (!this.words.length) {
+      this.rowsCt.add(this.add.text(W / 2, 260, 'Táto lekcia nemá žiadne slovíčka.', {
+        fontSize: '16px', fill: '#445566', fontFamily: 'Arial, sans-serif',
+      }).setOrigin(0.5));
     }
-    this.modeDesc.setText(desc).setStyle({ fill: isWarn ? '#ff8844' : '#556677' });
+
+    // Two columns of 8 rows
+    slice.forEach((p, i) => {
+      const col = i < 8 ? 0 : 1;
+      const row = i % 8;
+      const x   = col === 0 ? 70 : 420;
+      const y   = 110 + row * 48;
+      this.rowsCt.add(this.add.rectangle(x + 155, y + 16, 330, 1, 0x223040));
+      this.rowsCt.add(this.add.text(x, y, p.en, {
+        fontSize: '16px', fill: '#ffffff', fontFamily: 'Arial, sans-serif',
+        wordWrap: { width: 300 },
+      }).setOrigin(0, 0));
+      this.rowsCt.add(this.add.text(x + 310, y + 2, p.sk, {
+        fontSize: '14px', fill: cfg.color, fontFamily: 'Arial, sans-serif',
+        align: 'right', wordWrap: { width: 300 },
+      }).setOrigin(1, 0));
+    });
+
+    this.pageTxt.setText(`${this.words.length} slovíčok  ·  strana ${this.page + 1}/${pages}`);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   TRAIN SCENE — placeholder for the new practice mode
+════════════════════════════════════════════════════════════════════════════ */
+class TrainScene extends Phaser.Scene {
+  constructor() { super('Train'); }
+
+  init(data) {
+    this.subject = data.subject || 'english';
+    this.ids     = data.ids || [];
+    this.back    = data.back || { scene: 'Menu', data: {} };
+  }
+
+  create() {
+    const cfg = SUBJECTS[this.subject];
+    menuHeader(this, '⚡  Tréning', 'Pripravujeme', cfg.color,
+      () => this.scene.start(this.back.scene, this.back.data));
+
+    const n = wordsForSelection(this.subject, this.ids).length;
+    this.add.rectangle(W / 2, 290, 560, 240, 0x16202c).setStrokeStyle(2, 0x2a3c50);
+    this.add.text(W / 2, 220, '🚧', { fontSize: '44px' }).setOrigin(0.5);
+    this.add.text(W / 2, 282, 'Tréningový mód ešte nie je hotový', {
+      fontSize: '18px', fill: '#ffffff', fontFamily: '"Arial Black", Arial, sans-serif',
+    }).setOrigin(0.5);
+    this.add.text(W / 2, 320,
+      `Vybrané: ${selectionLabel(this.subject, this.ids)}  ·  ${n} slovíčok\n\n` +
+      'Keď sa dohodneme, ako má tréning fungovať,\npribudne presne na tomto mieste.', {
+        fontSize: '13px', fill: '#8899aa', fontFamily: 'Arial, sans-serif', align: 'center',
+        lineSpacing: 2,
+      }).setOrigin(0.5, 0);
+
+    const b = makeButton(this, W / 2, 470, 260, 46, 0x1e2a3a, '← späť na lekcie', 18);
+    b.bg.setStrokeStyle(2, 0x334455);
+    b.txt.setStyle({ fill: '#9aaabb' });
+    b.bg.on('pointerdown', () => this.scene.start(this.back.scene, this.back.data));
   }
 }
 
@@ -1150,7 +1675,12 @@ class GameScene extends Phaser.Scene {
     this.startLevel  = typeof data.level === 'number' ? data.level : 3;
     this.kidMode     = data.kid  || false;
     this.gameMode    = data.mode || 'typing'; // mechanic: 'typing' | 'translation' | 'story'
-    this.unit        = data.unit || null;      // unit name (Tricky Words), or null for Random Words
+    this.unit        = data.unit || null;      // lesson id (a key in trickyUnits), or null for Random Words
+    // Which leaderboard category this run belongs to, and which menu screen
+    // the ⌂ / game-over buttons should return to. Both come from the menu so
+    // the game engine doesn't need to know about subjects at all.
+    this.lbMode      = data.lbMode || lbModeFor(this.gameMode, this.unit);
+    this.backTo      = data.back || { scene: 'Menu', data: {} };
   }
 
   /* ── helpers ── */
@@ -1281,7 +1811,7 @@ class GameScene extends Phaser.Scene {
         this.input.keyboard.off('keydown', this.onKey, this);
         for (const fw of this.words) fw.obj.destroy();
         this.words = [];
-        this.scene.start('Menu');
+        this.scene.start(this.backTo.scene, this.backTo.data);
       }
     });
 
@@ -1760,7 +2290,9 @@ class GameScene extends Phaser.Scene {
         kid:          this.kidMode,
         mechanic:     this.gameMode,
         unit:         this.unit,
-        mode:         lbModeFor(this.gameMode, this.unit),
+        mode:         this.lbMode,
+        lbMode:       this.lbMode,
+        back:         this.backTo,
       });
     });
   }
@@ -1780,6 +2312,8 @@ class GameOverScene extends Phaser.Scene {
     this.mechanic     = data.mechanic     || 'typing'; // for restarting the same game
     this.unit         = data.unit         || null;
     this.gameMode     = data.mode         || 'typing'; // leaderboard/MODE_META display key
+    this.lbMode       = data.lbMode       || this.gameMode;
+    this.backTo       = data.back         || { scene: 'Menu', data: {} };
   }
 
   create() {
@@ -2017,7 +2551,10 @@ class GameOverScene extends Phaser.Scene {
 
   buildButtons() {
     const pb = makeButton(this, W / 2 - 115, 548, 200, 52, 0x0055aa, 'PLAY AGAIN', 20);
-    pb.bg.on('pointerdown', () => this.scene.start('Game', { level: this.startLevel, kid: this.kidMode, mode: this.mechanic, unit: this.unit }));
+    pb.bg.on('pointerdown', () => this.scene.start('Game', {
+      level: this.startLevel, kid: this.kidMode, mode: this.mechanic,
+      unit: this.unit, lbMode: this.lbMode, back: this.backTo,
+    }));
 
     const mb = this.add.rectangle(W / 2 + 115, 548, 200, 52, 0x1e2a3a)
       .setStrokeStyle(2, 0x334455).setInteractive({ useHandCursor: true });
@@ -2026,7 +2563,7 @@ class GameOverScene extends Phaser.Scene {
     }).setOrigin(0.5);
     mb.on('pointerover', () => mb.setFillStyle(0x273550));
     mb.on('pointerout',  () => mb.setFillStyle(0x1e2a3a));
-    mb.on('pointerdown', () => this.scene.start('Menu'));
+    mb.on('pointerdown', () => this.scene.start(this.backTo.scene, this.backTo.data));
   }
 }
 
@@ -2240,20 +2777,20 @@ class HowToPlayScene extends Phaser.Scene {
       }).setOrigin(0, 0);
     };
 
-    modeRow(226, '🎯', 0xaa6600, 'Tricky Words',
-      'Your own vocabulary — pick a unit (Unit 0 words, Nationalities, more to come), then Translate or Story Mode.');
-    modeRow(274, '🎲', 0x004ab5, 'Random Words',
-      'Built-in word lists — Typing (speed drill) or Translate (EN↔SK vocabulary).');
-    modeRow(322, '🟢', 0x007744, 'Translate mechanic',
-      'A word (or picture) prompt appears — type the matching answer. Same mechanic everywhere, just a different list underneath.');
-    modeRow(370, '🟠', 0xaa4400, 'Story Mode',
-      'A picture falls instead of text — type its English name. Needs matching pictures in images/story/.');
+    modeRow(226, '🎯', 0x3a6aa8, 'English — Tricky words  /  Science',
+      'Two subjects with weekly lessons. Pick a lesson row, tick a mode column, press SPUSTIŤ.');
+    modeRow(274, '🎲', 0xb58a1f, 'Random words',
+      'Built-in word lists, no lessons — Typing (speed drill) or Translate (EN↔SK vocabulary).');
+    modeRow(322, '📖', 0x2a7a9a, 'Štúdium  /  Tréning',
+      'Štúdium shows the plain word list of a lesson. Tréning is the new practice mode — coming soon.');
+    modeRow(370, '⬇', 0x007744, 'Padajúce slová',
+      'The falling-word game: a word appears in EN or SK — type the translation before it lands.');
 
     // separator
     this.add.rectangle(W / 2, 420, 640, 1, 0x1e2e3e);
 
-    line(430, 'Edit tricky_words.js / nationality.txt to add your own vocabulary (english|slovensky, or country|nationality).', '#445566');
-    line(446, 'For Story Mode, drop a picture named after the English word into images/story/ (.jpg or .png, e.g. apple.png).', '#445566');
+    line(430, 'New lesson every week: add a block to english_words.js or science_words.js (english|slovensky).', '#445566');
+    line(446, 'Nationalities keeps its own file — nationality.txt (country|nationality).', '#445566');
     line(462, 'Save the file(s) and press F5 to reload the game.', '#445566');
 
     // Back button
@@ -2264,6 +2801,25 @@ class HowToPlayScene extends Phaser.Scene {
   }
 }
 
+/* ── TODO / next steps ────────────────────────────────────────────────────────
+   1. Tréning mode — TrainScene is a placeholder. Decide the mechanic first
+      (flashcards? multiple choice? typing without time pressure?), then build
+      it there; the menu already routes to it.
+   2. Multiple lessons at once — set MAX_SELECTED_LESSONS to a higher number
+      (or Infinity). Everything downstream already merges the selected word
+      lists (wordsForSelection / unitForSelection), so no other change is
+      needed. The "one lesson at a time" hint text in SubjectScene should be
+      updated at the same time.
+   3. Story Mode — the mechanic and the picture loading still work, but it is
+      no longer reachable from the menu. To bring it back, add a fourth entry
+      to MODES: { id:'story', label:'Obrázky', icon:'🖼️', scene:'Game',
+      mechanic:'story' }. Consider showing it only for lessons that actually
+      have pictures (storyUnits[lessonId]).
+   4. Progress per lesson (learned / practised marks in the table rows) —
+      the row layout leaves room on the left for a small indicator.
+   5. Study mode could get a "hide Slovak / test yourself" toggle.
+────────────────────────────────────────────────────────────────────────────── */
+
 /* ── Boot ───────────────────────────────────────────────────────────────────── */
 async function boot() {
   await loadWords();
@@ -2271,7 +2827,11 @@ async function boot() {
     type: Phaser.AUTO,
     width: W, height: H,
     backgroundColor: '#1a1a2e',
-    scene: [PreloadScene, MenuScene, GameScene, GameOverScene, LeaderboardScene, HowToPlayScene],
+    scene: [
+      PreloadScene,
+      HomeScene, SubjectScene, RandomScene, StudyScene, TrainScene,
+      GameScene, GameOverScene, LeaderboardScene, HowToPlayScene,
+    ],
     parent: document.body,
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   });
