@@ -217,9 +217,12 @@ setTimeout(() => {
     tr.retryMissed();
     if (!started[0].restart || started[0].data._pool.length !== 2) throw new Error('retryMissed did not restart with the missed pool');
   });
-  run('Tréning: difficulty knob changes timing', () => {
-    const easy = trainTiming(0), hard = trainTiming(9);
-    if (!(easy.timeLimitMs > hard.timeLimitMs && easy.hintMs > hard.hintMs)) throw new Error('timing did not scale with difficulty');
+  run('Tréning: difficulty formula matches "Ako hrať" exactly', () => {
+    const cases = [[0, 11000], [3, 8000], [6, 5000], [9, 2000]];
+    for (const [lvl, ms] of cases) {
+      const got = trainTiming(lvl).timeLimitMs;
+      if (got !== ms) throw new Error('level ' + lvl + ': expected ' + ms + 'ms, got ' + got + 'ms');
+    }
   });
   run('Tréning: empty selection shows a message, not a crash', () => {
     mount(TrainScene, 'Train', { subject: 'english', ids: ['__no_such_lesson__'], back: { scene: 'Subject', data: {} } });

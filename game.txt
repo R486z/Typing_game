@@ -1649,17 +1649,21 @@ class StudyScene extends Phaser.Scene {
    TRAIN SCENE — placeholder for the new practice mode
 ════════════════════════════════════════════════════════════════════════════ */
 /* ── Difficulty → timing for Tréning ─────────────────────────────────────────
-   Reuses the same 0–9 OBTIAŽNOSŤ knob shown at the bottom of every screen, so
-   it means the same thing everywhere: 0 = most forgiving, 9 = hardest.
-     time limit    14s (lvl 0)  →  6s  (lvl 9)
-     hint interval 3.2s (lvl 0) →  1.7s (lvl 9)  — how often a new letter appears
+   Reuses the same 0–9 OBTIAŽNOSŤ knob shown at the bottom of every screen.
+   Deliberately a plain, exact formula (not a curve) so it can be written down
+   once in "Ako hrať" instead of needing a per-level table there:
+     time limit  = (11 − level) seconds   → level 9 = 2s … level 0 = 11s
+     hint tick   = time limit ÷ 4         → first tick shows the "_ _ _"
+                                             outline, later ticks reveal a
+                                             letter each — so harder levels
+                                             naturally give fewer hints, not
+                                             just less time.
 */
 function trainTiming(level) {
-  const t = Phaser.Math.Clamp(level, 0, 9) / 9;
-  return {
-    timeLimitMs: Math.round(14000 - t * 8000),
-    hintMs:      Math.round(3200 - t * 1500),
-  };
+  const lvl = Phaser.Math.Clamp(Math.round(level), 0, 9);
+  const timeLimitMs = (11 - lvl) * 1000;
+  const hintMs = Math.round(timeLimitMs / 4);
+  return { timeLimitMs, hintMs };
 }
 
 // Long words/phrases ("virtual reality headset") must not run off the 720px-
@@ -3135,22 +3139,25 @@ class HowToPlayScene extends Phaser.Scene {
       'a rovno spustíš.');
     line(LX, 220, LW,
       'Posúvač OBTIAŽNOSŤ 0–9 dole je spoločný pre všetky režimy: v Padajúcich ' +
-      'slovách mení rýchlosť pádu, v Tréningu čas na slovo aj tempo nápovedy.');
+      'slovách mení rýchlosť pádu, v Tréningu čas na slovo.');
+    line(LX, 250, LW,
+      'V Tréningu platí presne: úroveň 9 = 2s na slovo, každá o 1 nižšia ' +
+      'úroveň = +1s (úroveň 0 = 11s).', '#6a8a55');
 
-    section(LX, 262, 'OVLÁDANIE');
-    line(LX, 280, LW, 'Backspace = zmazať posledné písmeno   ·   Esc = vymazať / späť');
-    line(LX, 300, LW, '⏸ = pauza (len Padajúce slová)   ·   ⌨️ KLÁVESNICA = zapne/vypne dotykovú klávesnicu');
-    line(LX, 328, LW,
+    section(LX, 292, 'OVLÁDANIE');
+    line(LX, 310, LW, 'Backspace = zmazať posledné písmeno   ·   Esc = vymazať / späť');
+    line(LX, 330, LW, '⏸ = pauza (len Padajúce slová)   ·   ⌨️ KLÁVESNICA = zapne/vypne dotykovú klávesnicu');
+    line(LX, 358, LW,
       'Mäkčene a dĺžne sa netreba trafiť presne — "casto" sa prijme aj za "často".', '#5a6a7a');
-    line(LX, 350, LW,
+    line(LX, 380, LW,
       '🌍 Rebríček (Leaderboard) je zdieľaný online, bez pripojenia funguje ' +
       'aspoň lokálne na tomto zariadení.', '#5a6a7a');
 
-    section(LX, 392, 'PRIDANIE NOVEJ LEKCIE');
-    line(LX, 410, LW,
+    section(LX, 422, 'PRIDANIE NOVEJ LEKCIE');
+    line(LX, 440, LW,
       'Skopíruj blok v english_words.js alebo science_words.js, vyplň id, ' +
       'label, group a slovíčka, ulož a stlač F5. V kóde hry netreba meniť nič.');
-    line(LX, 452, LW,
+    line(LX, 482, LW,
       'Nationalities má vlastný súbor nationality.txt (country|nationality).', '#5a6a7a');
 
     /* ── Right column: 3 módy ── */
