@@ -5,8 +5,8 @@
 //
 //   id     – krátky jednoznačný kód lekcie (nikdy ho už nemeň, viaže sa naň
 //            výsledok v leaderboarde).  Napr. 'en-w13'
-//   label  – čo sa zobrazí v menu.  Napr. 'Týždeň 13'
-//   topic  – téma, zobrazí sa malým pod názvom (môže byť aj '')
+//   label  – čo sa zobrazí v menu (po anglicky).  Napr. 'Week 13'
+//   topic  – téma po anglicky, zobrazí sa malým pod názvom (môže byť aj '')
 //   group  – nadpis skupiny v menu (zbaliteľná sekcia), napr. 'September 2026'
 //   words  – slovíčka vo formáte  english|slovensky, jedno na riadok
 //
@@ -27,7 +27,7 @@ window.ENGLISH_LESSONS = [
   {
     id:    'en-unit0',
     label: 'Unit 0',
-    topic: 'úvodné slovíčka',
+    topic: 'introductory words',
     group: 'Unit 0',
     words: `
 to investigate|pátrať
@@ -56,8 +56,8 @@ never|nikdy
   // ── ŠABLÓNA: skopíruj tento blok, odkomentuj a vyplň ──────────────────────
   // {
   //   id:    'en-w1',
-  //   label: 'Týždeň 1',
-  //   topic: 'cestovanie',
+  //   label: 'Week 1',
+  //   topic: 'travel',
   //   group: 'September 2026',
   //   words: `
   // through|cez

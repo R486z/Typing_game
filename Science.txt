@@ -1,0 +1,156 @@
+# Word Drop – Science vocabulary
+# ─────────────────────────────────────────────────────────────────────────────
+# One block per lesson of the Science book:
+#
+#   ## <lesson number> | <lesson title from the book>
+#   english | slovak
+#   english | slovak | hint
+#
+# Rules
+#   - The lesson number (1–13) is the lesson's permanent ID. The order of the
+#     blocks in this file does not matter; the menu shows the highest number first.
+#   - Lines starting with a single # are comments and are ignored.
+#   - Words may contain letters and spaces only – the child has to type them.
+#     No brackets, apostrophes, hyphens or digits. Capital letters are kept
+#     exactly as written (Earth) and shown that way; typing them is case-insensitive.
+#   - The optional 3rd column is a hint. It is only SHOWN next to the English word
+#     (e.g. "globe (model)"), never typed. Use it when two rows have the same
+#     English word, like "globe" below.
+#   - "Final Revision" is built automatically from all lessons. Do not add it here.
+#   - Save the file as UTF-8 (so č, š, ž, á, ó … survive), then refresh the page.
+#   - If a line has a problem, the Science screen shows an orange warning with
+#     the line number (all of them: press F12 → Console).
+# ─────────────────────────────────────────────────────────────────────────────
+
+## 1 | Magnets | 5
+iron | železo
+magnetic | magnetický
+magnetic field | magnetické pole
+magnetism | magnetizmus
+metals | kovy
+north pole | severný pól
+silver | striebro
+south pole | južný pól
+to attract | priťahovať
+to repel | odpudzovať
+to surround | obklopiť
+
+## 2 | The Globe and Gravity | 10
+Earth | zem
+force | sila
+globe | glóbus | model
+globe | zemegula | real Earth
+gravitational field | gravitačné pole
+gravity | gravitácia
+
+## 3 | Moon and Shadows | 13
+closer | bližšie
+farther | ďalej
+moon | mesiac
+phases | fázy
+shadow | tieň
+straight lines | priamky
+to block | blokovať
+
+## 4 | Universe, Galaxies, and Black Holes
+air | vzduch
+billion | miliarda
+black holes | čierne diery
+galaxy | galaxia
+oxygen | kyslík
+planets | planéty
+spacesuit | skafander
+stars | hviezdičky
+to breathe | dýchať
+to explode | explodovať
+universe/space | vesmír
+
+## 5 | Exploring The Night Sky and Stars
+constellations | súhvezdie
+gas | plyn
+near | blízko
+observatory | hvezdáreň
+orbit | obiehať
+planetarium | planetárium
+shape | tvar
+solar system | slnečná sústava
+telescope | teleskop
+
+## 6 | Introduction to Animals | 27
+characteristics | charakteristiky
+cold-blooded | chladnokrvný
+invertebrate | bezstavovce
+species | druhy
+spine | chrbtica
+vertebrate | stavovce
+warm-blooded | teplokrvný
+
+## 7 | Animal Groups Part 1
+amphibians | obojživelníky
+gills | žiabre
+lungs | pľúca
+mammals | cicavec
+reptiles | plazy
+scales | šupiny
+skin | koža
+
+## 8 | Animal Groups Part 2
+arthropods | článkonožce
+birds | vtáky
+exoskeleton | vonkajšia kostra
+fish | ryby
+segmented body | článkované telo
+
+## 9 | The Human Body Part 1 | 35
+arteries | tepny
+bones | kosti
+cardiovascular system | kardiovaskulárny systém
+cells | bunky
+muscles | svaly
+musculoskeletal system | pohybová sústava
+nerves | nervy
+nervous system | nervový systém
+organs | orgány
+spinal cord | miecha
+systems | systémy/sústavy
+tissues | tkanivá
+veins | žily
+
+## 10 | The Human Body Part 2
+bacteria | baktéria
+digestive system | tráviaca sústava
+immune | imúnny
+immune system | imunitný systém
+infections | infekcie
+integumentary system | kožný systém
+large intestine | hrubé črevo
+small intestine | tenké črevo
+absorb | absorbovať
+breakdown | rozkladať
+virus | vírus
+white blood cells | biele krvinky
+
+## 11 | Eating Healthy | 42
+carbohydrates | sacharidy
+fat | tuk
+minerals | minerály
+protein | proteín
+vitamins | vitamíny
+
+## 12 | Soil | 47
+dirt | hlina
+fertile | úrodná (pôda)
+grow | rásť
+layers | vrstvy
+pollution | znečistenie
+soil | pôda
+
+## 13 | Photosynthesis | 50
+chemical | chemický
+glucose | glukóza
+leaves | listy
+molecules | molekuly
+photosynthesis | fotosyntéza
+plants | rastliny
+stored | uložený
+to release | uvoľniť

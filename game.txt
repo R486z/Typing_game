@@ -61,7 +61,7 @@ let storyUnits             = {}; // Story Mode:   { "Unit 0 words": [{en,sk,imag
        └─ Subject      a table: rows = lessons (newest first), columns = modes
 
    A "lesson" is one week's (or one topic's) word list. Lessons come from the
-   data files (english_words.js / science_words.js) and are registered into
+   data files (english_words.js / Science.txt) and are registered into
    `trickyUnits` under their id, so the falling-word game can use them
    unchanged. Adding a new week every week means editing ONLY the data file —
    no changes anywhere in this file. */
@@ -75,10 +75,8 @@ const SUBJECTS = {
   science: {
     label: 'Science', short: 'Science', icon: '🔬', color: '#44ffaa',
     colorHex: 0x44ffaa, lbMode: 'science',
-    source: 'science_words.js',
-    // Locked for now: the card is visible but not clickable. Delete this line
-    // when the Science lessons are ready — everything else already works.
-    comingSoon: true,
+    source: 'Science.txt',
+    // (Add  comingSoon: true  here to lock the card on Home again.)
   },
   random: {
     label: 'Random words', short: 'Random', icon: '🎲', color: '#ffcc44',
@@ -114,7 +112,7 @@ function lessonById(subject, id) { return lessonsFor(subject).find(l => l.id ===
 function lessonGroups(subject) {
   const out = [];
   for (const l of [...lessonsFor(subject)].reverse()) {
-    const name = l.group || 'Lekcie';
+    const name = l.group || 'Lessons';
     let g = out.find(x => x.name === name);
     if (!g) { g = { name, lessons: [] }; out.push(g); }
     g.lessons.push(l);
@@ -133,7 +131,7 @@ function wordsForSelection(subject, ids) {
   const seen = new Set(); const out = [];
   for (const id of ids) {
     for (const p of (lessonById(subject, id)?.words || [])) {
-      const k = `${p.en}|${p.sk}`;
+      const k = `${p.en}|${p.sk}`.toLowerCase();
       if (seen.has(k)) continue;
       seen.add(k); out.push(p);
     }
@@ -685,18 +683,109 @@ function parseWords(src) {
   }
 }
 
+/* english|slovak  or  english|slovak|hint  — one pair per line.
+   Capitals are kept exactly as written (Earth, Greece): they are only DISPLAYED,
+   typing is case-insensitive (see normalize()). The optional hint tells two
+   rows with the same English word apart (globe|glóbus|model) and is never typed. */
 function parseTranslationWords(src) {
   const pool = [];
-  for (const line of src.split('\n')) {
+  for (const line of src.split(/\r?\n/)) {
     const t = line.trim();
     if (!t || t.startsWith('#')) continue;
-    const sep = t.indexOf('|');
-    if (sep < 0) continue;
-    const en = t.slice(0, sep).trim().toLowerCase();
-    const sk = t.slice(sep + 1).trim().toLowerCase();
-    if (en && sk) pool.push({ en, sk });
+    const parts = t.split('|').map(x => x.trim());
+    if (parts.length < 2) continue;
+    const [en, sk, hint] = parts;
+    if (en && sk) pool.push(hint ? { en, sk, hint } : { en, sk });
   }
   return pool;
+}
+
+// "globe (model)" — the way a pair (with its optional hint) is written in recaps.
+function pairLabel(p) {
+  return p.hint ? `${p.en} (${p.hint})` : p.en;
+}
+
+/* ── Science.txt ───────────────────────────────────────────────────────────
+     ## 1 | The Globe and Gravity          <- lesson number | title from the book
+     Earth | zem                            <- english | slovak
+     globe | glóbus | model                 <- english | slovak | hint (shown only)
+   Everything suspicious is collected in SCIENCE_STATUS.warnings (with the line
+   number) and shown on the Science screen, so a typo never fails silently. */
+const SCIENCE_ROUND_SIZE = 20;   // Training in "Final Revision" asks this many random words
+let SCIENCE_STATUS = { error: '', warnings: [] };
+
+function parseScienceFile(src, warn) {
+  const out = [];
+  let cur = null, orphanWarned = false;
+  const typable = /^[\p{L} ]+$/u;
+  const cp = ch => `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
+
+  src.replace(/^\uFEFF/, '').split(/\r?\n/).forEach((raw, i) => {
+    const n = i + 1, t = raw.trim();
+    if (!t) return;
+
+    if (t.startsWith('##')) {                       // lesson header
+      const parts = t.slice(2).split('|').map(x => x.trim());
+      const num = /^\d+$/.test(parts[0]) ? parseInt(parts[0], 10) : 0;
+      cur = null; orphanWarned = false;
+      if (num < 1) { warn.push(`line ${n}: a lesson header must start with a number, e.g.  ## 1 | Title`); return; }
+      if (out.some(l => l.num === num)) { warn.push(`line ${n}: lesson ${num} appears twice — the second block is ignored`); return; }
+      if (!parts[1]) warn.push(`line ${n}: lesson ${num} has no title (use  ## ${num} | Title)`);
+      cur = { num, title: parts[1] || `Lesson ${num}`, words: [] };
+      out.push(cur);
+      return;
+    }
+    if (t.startsWith('#')) return;                  // comment
+
+    if (!cur) {                                     // word before any valid header
+      if (!orphanWarned) warn.push(`line ${n}: word outside of a lesson — put a  ## number | title  line above it`);
+      orphanWarned = true;
+      return;
+    }
+    const parts = t.split('|').map(x => x.trim());
+    const [en, sk, hint] = parts;
+    if (parts.length < 2 || !en || !sk) { warn.push(`line ${n}: expected  english | slovak  — got "${t}"`); return; }
+    if (parts.length > 3) warn.push(`line ${n}: more than 3 columns — the extra ones are ignored`);
+    const bad = [en, sk].find(x => !typable.test(x));
+    if (bad) {
+      const ch = [...bad].find(c => !/[\p{L} ]/u.test(c));
+      warn.push(`line ${n}: "${bad}" contains "${ch}" (${cp(ch)}), which can't be typed in the game — line skipped`);
+      return;
+    }
+    cur.words.push(hint ? { en, sk, hint } : { en, sk });
+  });
+  return out.sort((a, b) => a.num - b.num);
+}
+
+async function loadScienceFile() {
+  SCIENCE_STATUS = { error: '', warnings: [] };
+  let text;
+  try {
+    // The timestamp makes sure an edited Science.txt is never served from cache.
+    const r = await fetch('Science.txt?v=' + Date.now());
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    text = await r.text();
+  } catch (e) {
+    SCIENCE_STATUS.error = `Science.txt could not be loaded (${e && e.message ? e.message : e})`;
+    console.warn('[Science.txt]', SCIENCE_STATUS.error);
+    return [];
+  }
+  const defs = parseScienceFile(text, SCIENCE_STATUS.warnings);
+  SCIENCE_STATUS.warnings.forEach(w => console.warn('[Science.txt]', w));
+  return defs;
+}
+
+// One short line for the Science screen / Home card (empty string = all fine).
+function scienceProblemLine() {
+  const st = SCIENCE_STATUS;
+  let msg = '';
+  if (st.error) msg = st.error;
+  else if (st.warnings.length) {
+    msg = `Science.txt, ${st.warnings[0]}` +
+      (st.warnings.length > 1 ? `   (+${st.warnings.length - 1} more — press F12 to see all)` : '');
+  }
+  if (!msg) return '';
+  return '⚠  ' + (msg.length > 125 ? msg.slice(0, 122) + '…' : msg);
 }
 
 async function loadWords() {
@@ -784,8 +873,8 @@ async function loadWords() {
 ];
   }
   /* ── Lessons ──────────────────────────────────────────────────────────────
-     Loaded from english_words.js / science_words.js (plain <script> globals,
-     so they work even from file:// without a local server). Each lesson is
+     English lessons come from english_words.js (a plain <script> global),
+     Science lessons from Science.txt (fetched, see parseScienceFile). Each lesson is
      registered into trickyUnits under its id — that's the format the falling
      word game already understands, so nothing in the game engine changes when
      a new week is added. */
@@ -802,7 +891,8 @@ async function loadWords() {
         id,
         label: def.label || id,
         topic: def.topic || '',
-        group: def.group || 'Lekcie',
+        group: def.group || 'Lessons',
+        num: def.num,
         words: pairs,
       });
       trickyUnits[id] = pairs;
@@ -811,7 +901,29 @@ async function loadWords() {
   };
 
   addLessons('english', window.ENGLISH_LESSONS);
-  addLessons('science', window.SCIENCE_LESSONS);
+
+  /* Science: one block per book lesson in Science.txt. Ids are derived from the
+     lesson number (sci-01 … sci-13), so the order inside the file is irrelevant. */
+  const sciDefs = await loadScienceFile();
+  addLessons('science', sciDefs.map(d => ({
+    id:    `sci-${String(d.num).padStart(2, '0')}`,
+    label: d.title, num: d.num, topic: '', group: 'Lessons', words: d.words,
+  })));
+
+  /* "Final Revision" — built here from ALL lessons, so nobody has to copy the
+     words anywhere (and the copy can never drift out of date). It is pushed
+     last, which puts it on top of the newest-first table, in its own group.
+     Training in this lesson asks only SCIENCE_ROUND_SIZE random words per round. */
+  const sciCount = lessons.science.length;
+  if (sciCount) {
+    const merged = wordsForSelection('science', lessons.science.map(l => l.id));
+    lessons.science.push({
+      id: 'sci-revision', label: 'Final Revision', isRevision: true,
+      topic: `All ${sciCount} ${sciCount === 1 ? 'lesson' : 'lessons'}`,
+      group: 'Revision', words: merged, roundSize: SCIENCE_ROUND_SIZE,
+    });
+    trickyUnits['sci-revision'] = merged;
+  }
 
   /* "Nationalities" keeps its own .txt file (Country|Nationality) — it is a
      topic, not a week, so it lands in its own group at the bottom of the
@@ -1185,7 +1297,7 @@ class HomeScene extends Phaser.Scene {
         fontSize: '19px', fill: lock ? '#5a6a7a' : '#ffffff',
         fontFamily: '"Arial Black", Arial, sans-serif',
       }).setOrigin(0, 0.5);
-      this.add.text(W / 2 - 262, y + 13, lock ? 'Pripravujeme' : this.metaFor(id), {
+      this.add.text(W / 2 - 262, y + 13, lock ? 'Coming soon' : this.metaFor(id), {
         fontSize: '12px', fill: lock ? '#4a5a6a' : '#8899aa', fontFamily: 'Arial, sans-serif',
       }).setOrigin(0, 0.5);
 
@@ -1231,15 +1343,16 @@ class HomeScene extends Phaser.Scene {
   }
 
   metaFor(id) {
-    if (id === 'random') return `${typingTranslationPool.length} slov · vstavané zoznamy`;
-    const ls = lessonsFor(id);
+    if (id === 'random') return `${typingTranslationPool.length} words · built-in lists`;
+    const ls = lessonsFor(id).filter(l => !l.isRevision);   // Final Revision is not a lesson of its own
+    if (id === 'science' && SCIENCE_STATUS.error) return `⚠  ${SCIENCE_STATUS.error}`;
     if (!ls.length) return `⚠  no lessons yet — add them to ${SUBJECTS[id].source}`;
     const words = ls.reduce((n, l) => n + l.words.length, 0);
     return `${ls.length} ${ls.length === 1 ? 'lesson' : 'lessons'} · ${words} words`;
   }
 
   refreshVk() {
-    this.vkBtn.txt.setText(`⌨️  KLÁVESNICA: ${vkEnabled ? 'ON' : 'OFF'}`);
+    this.vkBtn.txt.setText(`⌨️  KEYBOARD: ${vkEnabled ? 'ON' : 'OFF'}`);
     this.vkBtn.txt.setStyle({ fill: vkEnabled ? '#66ffaa' : '#778899' });
     this.vkBtn.bg.setStrokeStyle(2, vkEnabled ? 0x2a6a4a : 0x334455);
   }
@@ -1272,7 +1385,7 @@ class SubjectScene extends Phaser.Scene {
       this.cfg.color, () => this.scene.start('Menu'));
 
     /* ── Fixed column header ── */
-    this.add.text(VIEW.x + 8, 88, 'LEKCIA', {
+    this.add.text(VIEW.x + 8, 88, 'LESSON', {
       fontSize: '11px', fill: '#667788',
       fontFamily: '"Arial Black", Arial, sans-serif', letterSpacing: 2,
     }).setOrigin(0, 1);
@@ -1287,6 +1400,17 @@ class SubjectScene extends Phaser.Scene {
       }).setOrigin(0.5, 0.5);
     });
     this.add.rectangle(W / 2, VIEW.y - 4, 720, 1, 0x2a3c50);
+
+    /* Science.txt problems (missing file, a line that can't be typed, …) are
+       shown right under the list so they get noticed instead of failing silently. */
+    if (this.subject === 'science') {
+      const problem = scienceProblemLine();
+      if (problem) {
+        this.add.text(VIEW.x + 8, 417, problem, {
+          fontSize: '10px', fill: '#ffaa44', fontFamily: 'Arial, sans-serif',
+        }).setOrigin(0, 0.5);
+      }
+    }
 
     /* ── Scrollable list ── */
     this.listCt = this.add.container(0, 0);
@@ -1344,9 +1468,12 @@ class SubjectScene extends Phaser.Scene {
     const groups = lessonGroups(this.subject);
 
     if (!groups.length) {
-      this.listCt.add(this.add.text(W / 2, VIEW.y + 80,
-        `No lessons yet.\nAdd one to ${this.cfg.source} and press F5.`, {
+      const emptyMsg = (this.subject === 'science' && SCIENCE_STATUS.error)
+        ? SCIENCE_STATUS.error
+        : `No lessons yet.\nAdd one to ${this.cfg.source} and press F5.`;
+      this.listCt.add(this.add.text(W / 2, VIEW.y + 80, emptyMsg, {
           fontSize: '15px', fill: '#445566', fontFamily: 'Arial, sans-serif', align: 'center',
+          wordWrap: { width: 600 },
         }).setOrigin(0.5));
       this.contentH = 0;
       this.applyScroll();
@@ -1382,11 +1509,31 @@ class SubjectScene extends Phaser.Scene {
 
       g.lessons.forEach(l => {
         const rowY = y + 18;
+        /* Numbered lessons (Science) get a badge with the book's lesson number;
+           the Final Revision row gets a star and a faint accent background.
+           Rows without a number (English) keep the plain layout. */
+        const hasBadge = l.isRevision || l.num != null;
+        const tx       = VIEW.x + 16 + (hasBadge ? 38 : 0);
+        if (l.isRevision) {
+          this.listCt.add(this.add.rectangle(W / 2, y + 19, VIEW.w - 16, 37, this.cfg.colorHex, 0.07));
+        }
         this.listCt.add(this.add.rectangle(W / 2, y, VIEW.w - 16, 1, 0x223040));
-        this.listCt.add(this.add.text(VIEW.x + 16, rowY - 7, l.label, {
-          fontSize: '15px', fill: '#dde6ee', fontFamily: 'Arial, sans-serif',
-        }).setOrigin(0, 0.5));
-        this.listCt.add(this.add.text(VIEW.x + 16, rowY + 10,
+        if (hasBadge) {
+          this.listCt.add(this.add.circle(VIEW.x + 29, rowY, 13, 0x1a1a2e, 0)
+            .setStrokeStyle(2, l.isRevision ? this.cfg.colorHex : 0x33475e));
+          this.listCt.add(this.add.text(VIEW.x + 29, rowY, l.isRevision ? '★' : String(l.num), {
+            fontSize: l.isRevision ? '14px' : '12px',
+            fill: l.isRevision ? this.cfg.color : '#aabbcc',
+            fontFamily: '"Arial Black", Arial, sans-serif',
+          }).setOrigin(0.5));
+        }
+        const lblTxt = this.add.text(tx, rowY - 7, l.label, {
+          fontSize: '15px', fill: l.isRevision ? this.cfg.color : '#dde6ee',
+          fontFamily: 'Arial, sans-serif',
+        }).setOrigin(0, 0.5);
+        if (lblTxt.width > 350) lblTxt.setScale(350 / lblTxt.width);   // very long book titles
+        this.listCt.add(lblTxt);
+        this.listCt.add(this.add.text(tx, rowY + 10,
           `${l.topic ? l.topic + '  ·  ' : ''}${l.words.length} words`, {
             fontSize: '11px', fill: '#667788', fontFamily: 'Arial, sans-serif',
           }).setOrigin(0, 0.5));
@@ -1479,9 +1626,12 @@ class SubjectScene extends Phaser.Scene {
       return;
     }
     const m = modeById(s.mode);
-    const n = wordsForSelection(this.subject, s.ids).length;
+    const n   = wordsForSelection(this.subject, s.ids).length;
+    const one = s.ids.length === 1 ? lessonById(this.subject, s.ids[0]) : null;
+    const cap = (s.mode === 'train' && one && one.roundSize) ? one.roundSize : 0;
+    const cnt = (cap && n > cap) ? `${cap} random words out of ${n}` : `${n} words`;
     this.selTxt.setText(`${selectionLabel(this.subject, s.ids)}  ·  ${m.label}`);
-    this.infoTxt.setText(`${m.desc}  (${n} words)`);
+    this.infoTxt.setText(`${m.desc}  (${cnt})`);
     this.startBtn.bg.setFillStyle(0x0066bb).setInteractive({ useHandCursor: true });
     this.startBtn.txt.setStyle({ fill: '#ffffff' });
   }
@@ -1631,10 +1781,16 @@ class StudyScene extends Phaser.Scene {
       const x   = col === 0 ? 70 : 420;
       const y   = 110 + row * 48;
       this.rowsCt.add(this.add.rectangle(x + 155, y + 16, 330, 1, 0x223040));
-      this.rowsCt.add(this.add.text(x, y, p.en, {
+      const enTxt = this.add.text(x, y, p.en, {
         fontSize: '16px', fill: '#ffffff', fontFamily: 'Arial, sans-serif',
         wordWrap: { width: 300 },
-      }).setOrigin(0, 0));
+      }).setOrigin(0, 0);
+      this.rowsCt.add(enTxt);
+      if (p.hint) {
+        this.rowsCt.add(this.add.text(x + enTxt.width + 8, y + 3, `(${p.hint})`, {
+          fontSize: '12px', fill: '#ffcc44', fontFamily: 'Arial, sans-serif',
+        }).setOrigin(0, 0));
+      }
       this.rowsCt.add(this.add.text(x + 310, y + 2, p.sk, {
         fontSize: '14px', fill: cfg.color, fontFamily: 'Arial, sans-serif',
         align: 'right', wordWrap: { width: 300 },
@@ -1707,6 +1863,12 @@ class TrainScene extends Phaser.Scene {
     this.pool   = this._poolOverride
       ? Phaser.Utils.Array.Shuffle(this._poolOverride.slice())
       : Phaser.Utils.Array.Shuffle(wordsForSelection(this.subject, this.ids).slice());
+    // A lesson with a roundSize (Final Revision) asks only that many random
+    // words per round. "Retry the missed ones" (_poolOverride) is never capped.
+    const one = this.ids.length === 1 ? lessonById(this.subject, this.ids[0]) : null;
+    if (!this._poolOverride && one && one.roundSize && this.pool.length > one.roundSize) {
+      this.pool = this.pool.slice(0, one.roundSize);
+    }
     this.words  = this.pool;
     this.total  = this.words.length;
     this.idx    = 0;
@@ -1746,6 +1908,11 @@ class TrainScene extends Phaser.Scene {
     this.maskTxt = this.add.text(W / 2, 240, '', {
       fontSize: '30px', fill: this.cfg.color, fontFamily: '"Courier New", monospace',
       align: 'center', wordWrap: { width: 680 },
+    }).setOrigin(0.5, 0);
+
+    // Hint for rows that share an English word, e.g. "globe" -> "(model)". Shown, never typed.
+    this.hintTxt = this.add.text(W / 2, 212, '', {
+      fontSize: '15px', fill: '#ffcc44', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5, 0);
 
     this.typedTxt = this.add.text(W / 2, 288, '', {
@@ -1800,6 +1967,7 @@ class TrainScene extends Phaser.Scene {
     this.promptTxt.setText(this.prompt)
       .setStyle({ fontSize: fitFontSize(this.prompt.length, 34) + 'px' });
     this.feedbackTxt.setText('');
+    this.hintTxt.setText(this.toSlovak && pair.hint ? `(${pair.hint})` : '');
     this.renderMask();
     this.renderTyped();
 
@@ -1942,7 +2110,7 @@ class TrainScene extends Phaser.Scene {
 
   showResults() {
     [this.progressTxt, this.barBg, this.bar, this.promptSideTxt, this.promptTxt,
-     this.maskTxt, this.typedTxt, this.feedbackTxt].forEach(o => o && o.setVisible(false));
+     this.maskTxt, this.hintTxt, this.typedTxt, this.feedbackTxt].forEach(o => o && o.setVisible(false));
     if (this.vkKeys) this.vkKeys.forEach(k => k.destroy());
 
     const n = this.words.length;
@@ -1958,12 +2126,12 @@ class TrainScene extends Phaser.Scene {
         fontSize: '12px', fill: '#8899aa', fontFamily: 'Arial, sans-serif',
       }).setOrigin(0.5);
       this.missed.slice(0, 8).forEach((p, i) => {
-        this.add.text(W / 2, 256 + i * 22, `${p.en}  →  ${p.sk}`, {
+        this.add.text(W / 2, 256 + i * 22, `${pairLabel(p)}  →  ${p.sk}`, {
           fontSize: '14px', fill: '#dde6ee', fontFamily: 'Arial, sans-serif',
         }).setOrigin(0.5);
       });
       if (this.missed.length > 8) {
-        this.add.text(W / 2, 256 + 8 * 22, `… a ${this.missed.length - 8} ďalších`, {
+        this.add.text(W / 2, 256 + 8 * 22, `… and ${this.missed.length - 8} more`, {
           fontSize: '12px', fill: '#556677', fontFamily: 'Arial, sans-serif',
         }).setOrigin(0.5);
       }
@@ -2383,7 +2551,7 @@ class GameScene extends Phaser.Scene {
     // (which only knows about "container + underTxt" words) works unchanged.
     this.words.push({
       obj: container, word: answer, pairEN: pair.en, underTxt, isTranslation: true,
-      missedLabel: `${capWords(pair.en)} → ${capWords(pair.sk)}`,
+      missedLabel: `${pair.en} → ${pair.sk}`,
     });
   }
 
@@ -2422,13 +2590,26 @@ class GameScene extends Phaser.Scene {
       fontSize: '15px', fill: '#334466', fontFamily: 'monospace',
     }).setOrigin(0.5, 0);
 
-    container.add([lblTxt, promptTxt, underTxt]);
+    /* Rows that share an English word carry a hint (globe|glóbus|model). It is
+       only needed when the ENGLISH word is the prompt — going Slovak → English
+       the Slovak word itself is already unambiguous. The underscores move one
+       line down to make room. */
+    const parts = [lblTxt, promptTxt, underTxt];
+    if (enToSk && pair.hint) {
+      const hintTxt = this.add.text(0, 44, `(${pair.hint})`, {
+        fontSize: '13px', fill: '#ffcc44', fontFamily: 'Arial, sans-serif',
+        stroke: '#221100', strokeThickness: 2,
+      }).setOrigin(0.5, 0);
+      underTxt.y = 62;
+      parts.push(hintTxt);
+    }
+    container.add(parts);
     // Clamp so the widest child never overflows the screen
-    const maxHalf = Math.max(lblTxt.width, promptTxt.width, underTxt.width) / 2;
+    const maxHalf = Math.max(...parts.map(o => o.width)) / 2;
     container.x = Phaser.Math.Clamp(container.x, maxHalf + 10, W - maxHalf - 10);
     this.words.push({
       obj: container, word: answer, pairEN: pair.en, underTxt, promptTxt, isTranslation: true,
-      missedLabel: `${capWords(pair.en)} → ${capWords(pair.sk)}`,
+      missedLabel: `${pairLabel(pair)} → ${pair.sk}`,
     });
   }
 
@@ -3144,7 +3325,7 @@ class HowToPlayScene extends Phaser.Scene {
     left.section('GETTING AROUND');
     left.line('Home screen: pick a subject — English — Tricky words, Science, or Random words.');
     left.line('In English and Science, tick one lesson (row) and one mode (column) in the table, then press START.');
-    left.line('Science is marked Coming soon — its card on Home doesn\u2019t react to taps yet.', '#7a8a55');
+    left.line('Science has a starred Final Revision row on top: every lesson mixed together. Training there asks 20 random words per round.', '#7a8a55');
     left.line('Random words has no lessons — just pick a mode (Typing / Translate) and go.');
     left.line('The DIFFICULTY 0–9 slider at the bottom is shared everywhere: it changes fall speed in Falling words, and the time per word in Training.');
     left.line('In Training it\u2019s exact: level 9 = 2s per word, each level down = +1s (level 0 = 11s).', '#6a8a55');
@@ -3156,7 +3337,7 @@ class HowToPlayScene extends Phaser.Scene {
     left.line('🌍 The leaderboard is shared online, and falls back to this device only if you\u2019re offline.', '#5a6a7a');
 
     left.section('ADDING A NEW LESSON');
-    left.line('Copy a block in english_words.js or science_words.js, fill in id, label, group and words, save, and press F5. Nothing in the game code needs to change.');
+    left.line('English: copy a block in english_words.js. Science: edit Science.txt (## number | title, then english | slovak | hint). Save and press F5 — nothing in the game code needs to change.');
     left.line('Nationalities has its own file — nationality.txt (country|nationality).', '#5a6a7a');
 
     /* ── Right column: the 3 modes ── */
@@ -3212,8 +3393,8 @@ class HowToPlayScene extends Phaser.Scene {
    3. Progress per lesson (learned / practised marks in the table rows) —
       the row layout leaves room on the left for a small indicator.
    4. Study mode could get a "hide Slovak / test yourself" toggle.
-   5. Science lessons — SUBJECTS.science.comingSoon locks the card on Home.
-      Delete that line once real Science lessons are in science_words.js.
+   5. (done) Science lessons live in Science.txt; the card on Home is unlocked.
+      SUBJECTS.science.comingSoon: true would lock it again.
 ────────────────────────────────────────────────────────────────────────────── */
 
 /* ── Boot ───────────────────────────────────────────────────────────────────── */
