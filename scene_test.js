@@ -230,6 +230,7 @@ setTimeout(() => {
     r.startBtn.bg.emit('pointerdown');
     if (started[0].key !== 'Game') throw new Error('went to ' + started[0].key);
   });
+  run('HowToPlayScene.create', () => { mount(HowToPlayScene, 'HowToPlay'); });
   run('Science is locked (no navigation)', () => {
     if (!SUBJECTS.science.comingSoon) throw new Error('science not marked comingSoon');
   });

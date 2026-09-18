@@ -33,7 +33,7 @@ const LEVEL_COLORS = [
 ];
 const DIFF_LABELS = [
   'Calm warm-up','Relaxed','Comfortable','Getting tricky','Challenging',
-  'Intense','Expert  (≈ old Hard)','Brutal','Extreme','Maximum difficulty 💀',
+  'Intense','Expert','Brutal','Extreme','Maximum difficulty 💀',
 ];
 
 // Shared mode metadata — used by the leaderboard "MODE" column and filter tabs.
@@ -68,7 +68,7 @@ let storyUnits             = {}; // Story Mode:   { "Unit 0 words": [{en,sk,imag
 
 const SUBJECTS = {
   english: {
-    label: 'English — Tricky words', short: 'English', icon: '🎯', color: '#66aaff',
+    label: 'Angličtina — Tricky words', short: 'Angličtina', icon: '🎯', color: '#66aaff',
     colorHex: 0x66aaff, lbMode: 'tricky',
     source: 'english_words.js',
   },
@@ -95,7 +95,7 @@ const MODES = [
   { id: 'study', label: 'Štúdium',        icon: '📖', scene: 'Study', mechanic: null,
     desc: 'Celý zoznam slovíčok lekcie — bez hry, len na prečítanie.' },
   { id: 'train', label: 'Tréning',        icon: '⚡', scene: 'Train', mechanic: null,
-    desc: 'Nový tréningový mód — pripravujeme.', soon: true },
+    desc: 'Píš preklad s postupnou nápovedou — bez padania, ale s časovým limitom.' },
   { id: 'drop',  label: 'Padajúce slová', icon: '⬇',  scene: 'Game',  mechanic: 'translation',
     desc: 'Slovíčka padajú z vrchu — napíš preklad, kým dopadnú.' },
 ];
@@ -1228,10 +1228,6 @@ class HomeScene extends Phaser.Scene {
     mkSmBtn(W / 2 + 10,  200, '❓  AKO HRAŤ',     () => this.scene.start('HowToPlay'));
     this.vkBtn = mkSmBtn(W / 2 + 260, 210, '', () => { vkEnabled = !vkEnabled; this.refreshVk(); });
     this.refreshVk();
-
-    this.add.text(W / 2, 556, 'Nové lekcie pribúdajú každý týždeň — stačí ich dopísať do english_words.js / science_words.js', {
-      fontSize: '11px', fill: '#33445a', fontFamily: 'Arial, sans-serif',
-    }).setOrigin(0.5);
   }
 
   metaFor(id) {
@@ -3095,64 +3091,99 @@ class HowToPlayScene extends Phaser.Scene {
     this.add.rectangle(W / 2, H / 2, W, H, 0x0d0d1a);
     drawGrid(this, 0x141428, 0.4);
 
-    this.add.text(W / 2, 36, '❓  HOW TO PLAY', {
-      fontSize: '34px', fill: '#00ccff',
+    this.add.text(W / 2, 26, '❓  AKO HRAŤ', {
+      fontSize: '30px', fill: '#00ccff',
       fontFamily: '"Arial Black", Arial, sans-serif',
       stroke: '#004488', strokeThickness: 6,
-    }).setOrigin(0.5);
+    }).setOrigin(0.5, 0);
 
-    const section = (y, txt) => this.add.text(W / 2, y, txt, {
-      fontSize: '12px', fill: '#8899bb', letterSpacing: 3,
+    const section = (x, y, txt) => this.add.text(x, y, txt, {
+      fontSize: '12px', fill: '#8899bb', letterSpacing: 2,
       fontFamily: '"Arial Black", Arial, sans-serif',
-    }).setOrigin(0.5);
-
-    const line = (y, txt, col = '#8899aa') => this.add.text(52, y, txt, {
-      fontSize: '13px', fill: col, fontFamily: 'Arial, sans-serif',
-      wordWrap: { width: W - 104 },
     }).setOrigin(0, 0);
 
-    section(70, 'BASICS');
-    line(90,  'Words fall from the top — type them before they hit the ground.');
-    line(104, 'Each missed word costs HP equal to its letter count. Lose all HP → game over.');
-    line(118, 'Level increases every 30 seconds — faster words, shorter intervals.');
-    line(132, 'Backspace = fix last letter  ·  Esc = clear input  ·  ⏸ = pause');
-    line(146, 'No diacritics needed — typing "macka" is accepted for "mačka". ✓', '#556677');
-    line(160, 'Missed a word? Its answer flashes above the ground for a moment so you can learn it.', '#556677');
-    line(174, 'Phone/tablet: on-screen keyboard shows automatically — toggle it in the menu.', '#556677');
-    line(188, '🌍 Leaderboard is shared online — falls back to your own device if you\'re offline.', '#556677');
+    const line = (x, y, w, txt, col = '#9aabbb') => this.add.text(x, y, txt, {
+      fontSize: '12px', fill: col, fontFamily: 'Arial, sans-serif',
+      wordWrap: { width: w }, lineSpacing: 3,
+    }).setOrigin(0, 0);
 
-    section(208, 'GAME MODES');
-
-    const modeRow = (y, icon, col, name, desc) => {
-      this.add.rectangle(50, y + 10, 14, 14, col).setOrigin(0, 0.5);
-      this.add.text(70, y, `${name}`, {
-        fontSize: '14px', fill: '#ffffff',
-        fontFamily: '"Arial Black", Arial, sans-serif',
+    const modeRow = (x, y, w, icon, col, name, desc) => {
+      this.add.rectangle(x, y + 9, 12, 12, col).setOrigin(0, 0.5);
+      this.add.text(x + 18, y, `${icon}  ${name}`, {
+        fontSize: '13.5px', fill: '#ffffff', fontFamily: '"Arial Black", Arial, sans-serif',
       }).setOrigin(0, 0);
-      this.add.text(70, y + 18, desc, {
-        fontSize: '12px', fill: '#778899', fontFamily: 'Arial, sans-serif',
-        wordWrap: { width: W - 120 },
+      return this.add.text(x + 18, y + 18, desc, {
+        fontSize: '11.5px', fill: '#8899aa', fontFamily: 'Arial, sans-serif',
+        wordWrap: { width: w - 18 }, lineSpacing: 2,
       }).setOrigin(0, 0);
     };
 
-    modeRow(226, '🎯', 0x3a6aa8, 'English — Tricky words  /  Science',
-      'Two subjects with weekly lessons. Pick a lesson row, tick a mode column, press SPUSTIŤ.');
-    modeRow(274, '🎲', 0xb58a1f, 'Random words',
-      'Built-in word lists, no lessons — Typing (speed drill) or Translate (EN↔SK vocabulary).');
-    modeRow(322, '📖', 0x2a7a9a, 'Štúdium  /  Tréning',
-      'Štúdium shows the plain word list of a lesson. Tréning is the new practice mode — coming soon.');
-    modeRow(370, '⬇', 0x007744, 'Padajúce slová',
-      'The falling-word game: a word appears in EN or SK — type the translation before it lands.');
+    /* ── Left column: navigácia, ovládanie, pridávanie lekcií ── */
+    const LX = 40, LW = 330;
+    section(LX, 66, 'ZÁKLADNÁ NAVIGÁCIA');
+    line(LX, 84, LW,
+      'Na Domovskej obrazovke si vyber predmet: Angličtina — Tricky words, ' +
+      'Science alebo Random slová.');
+    line(LX, 122, LW,
+      'V Angličtine a Science potom v tabuľke zaškrtni jednu lekciu (riadok) ' +
+      'a jeden mód (stĺpec) a stlač SPUSTIŤ.');
+    line(LX, 160, LW,
+      'Science je zatiaľ označené ako Pripravujeme — dlaždica na Domov obrazovke ' +
+      'ešte nereaguje na klik.', '#7a8a55');
+    line(LX, 190, LW,
+      'Random slová nemajú lekcie — len si vyberieš mód (Typing / Translate) ' +
+      'a rovno spustíš.');
+    line(LX, 220, LW,
+      'Posúvač OBTIAŽNOSŤ 0–9 dole je spoločný pre všetky režimy: v Padajúcich ' +
+      'slovách mení rýchlosť pádu, v Tréningu čas na slovo aj tempo nápovedy.');
 
-    // separator
-    this.add.rectangle(W / 2, 420, 640, 1, 0x1e2e3e);
+    section(LX, 262, 'OVLÁDANIE');
+    line(LX, 280, LW, 'Backspace = zmazať posledné písmeno   ·   Esc = vymazať / späť');
+    line(LX, 300, LW, '⏸ = pauza (len Padajúce slová)   ·   ⌨️ KLÁVESNICA = zapne/vypne dotykovú klávesnicu');
+    line(LX, 328, LW,
+      'Mäkčene a dĺžne sa netreba trafiť presne — "casto" sa prijme aj za "často".', '#5a6a7a');
+    line(LX, 350, LW,
+      '🌍 Rebríček (Leaderboard) je zdieľaný online, bez pripojenia funguje ' +
+      'aspoň lokálne na tomto zariadení.', '#5a6a7a');
 
-    line(430, 'New lesson every week: add a block to english_words.js or science_words.js (english|slovensky).', '#445566');
-    line(446, 'Nationalities keeps its own file — nationality.txt (country|nationality).', '#445566');
-    line(462, 'Save the file(s) and press F5 to reload the game.', '#445566');
+    section(LX, 392, 'PRIDANIE NOVEJ LEKCIE');
+    line(LX, 410, LW,
+      'Skopíruj blok v english_words.js alebo science_words.js, vyplň id, ' +
+      'label, group a slovíčka, ulož a stlač F5. V kóde hry netreba meniť nič.');
+    line(LX, 452, LW,
+      'Nationalities má vlastný súbor nationality.txt (country|nationality).', '#5a6a7a');
+
+    /* ── Right column: 3 módy ── */
+    const RX = 410, RW = 350;
+    section(RX, 66, 'MÓDY V TABUĽKE LEKCIÍ');
+
+    modeRow(RX, 88, RW, '📖', 0x2a7a9a, 'Štúdium',
+      'Celý zoznam slovíčok danej lekcie na čítanie, so stránkovaním. Žiadna hra, žiadny časový limit.');
+
+    modeRow(RX, 150, RW, '⚡', 0xffcc44, 'Tréning',
+      'Vidíš slovo, píšeš preklad. Zlé písmeno sa vôbec nezapíše a strhne 1s z času, ' +
+      'takže sa nedá "premackať". Po chvíli sa objaví obrys dĺžky slova a potom postupne ' +
+      'písmená ako nápoveda. Na konci skóre a zoznam slov, v ktorých si sa pomýlil — ' +
+      'dajú sa skúsiť znova.');
+
+    modeRow(RX, 250, RW, '⬇', 0x44ff88, 'Padajúce slová',
+      'Slovo padá zhora — napíš preklad, kým nedopadne na zem. Netrafené slovo uberie ' +
+      'HP podľa počtu písmen; pri 0 HP je koniec. Úroveň rastie každých 30s (rýchlejšie ' +
+      'slová, kratšie intervaly).');
+
+    section(RX, 336, 'RANDOM SLOVÁ (bez lekcií)');
+    modeRow(RX, 358, RW, '⌨️', 0x66aaff, 'Typing',
+      'Bežné anglické slová padajú súvisle — rýchlostný tréning písania.');
+    modeRow(RX, 410, RW, '🔤', 0x44ff88, 'Translate',
+      'Bežná slovná zásoba EN↔SK, smer sa strieda náhodne.');
+
+    this.add.rectangle(W / 2, 468, 720, 1, 0x1e2e3e);
+    line(RX, 480, RW,
+      'Tip: ak si nie si istý slovíčkom, skús ho najprv v Štúdiu, potom v Tréningu ' +
+      'a nakoniec v Padajúcich slovách.', '#5a6a7a');
 
     // Back button
-    const back = makeButton(this, W / 2, 520, 220, 46, 0x1e2a3a, '← BACK TO MENU', 18);
+    const back = makeButton(this, W / 2, 552, 220, 40, 0x1e2a3a, '← SPÄŤ DO MENU', 16);
     back.bg.setStrokeStyle(2, 0x334455);
     back.txt.setStyle({ fill: '#9aaabb' });
     back.bg.on('pointerdown', () => this.scene.start('Menu'));
@@ -3160,22 +3191,21 @@ class HowToPlayScene extends Phaser.Scene {
 }
 
 /* ── TODO / next steps ────────────────────────────────────────────────────────
-   1. Tréning mode — TrainScene is a placeholder. Decide the mechanic first
-      (flashcards? multiple choice? typing without time pressure?), then build
-      it there; the menu already routes to it.
-   2. Multiple lessons at once — set MAX_SELECTED_LESSONS to a higher number
+   1. Multiple lessons at once — set MAX_SELECTED_LESSONS to a higher number
       (or Infinity). Everything downstream already merges the selected word
       lists (wordsForSelection / unitForSelection), so no other change is
       needed. The "one lesson at a time" hint text in SubjectScene should be
       updated at the same time.
-   3. Story Mode — the mechanic and the picture loading still work, but it is
+   2. Story Mode — the mechanic and the picture loading still work, but it is
       no longer reachable from the menu. To bring it back, add a fourth entry
       to MODES: { id:'story', label:'Obrázky', icon:'🖼️', scene:'Game',
       mechanic:'story' }. Consider showing it only for lessons that actually
       have pictures (storyUnits[lessonId]).
-   4. Progress per lesson (learned / practised marks in the table rows) —
+   3. Progress per lesson (learned / practised marks in the table rows) —
       the row layout leaves room on the left for a small indicator.
-   5. Study mode could get a "hide Slovak / test yourself" toggle.
+   4. Study mode could get a "hide Slovak / test yourself" toggle.
+   5. Science lessons — SUBJECTS.science.comingSoon locks the card on Home.
+      Delete that line once real Science lessons are in science_words.js.
 ────────────────────────────────────────────────────────────────────────────── */
 
 /* ── Boot ───────────────────────────────────────────────────────────────────── */
