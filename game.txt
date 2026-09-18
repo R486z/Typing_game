@@ -68,7 +68,7 @@ let storyUnits             = {}; // Story Mode:   { "Unit 0 words": [{en,sk,imag
 
 const SUBJECTS = {
   english: {
-    label: 'Angličtina — Tricky words', short: 'Angličtina', icon: '🎯', color: '#66aaff',
+    label: 'English — Tricky words', short: 'English', icon: '🎯', color: '#66aaff',
     colorHex: 0x66aaff, lbMode: 'tricky',
     source: 'english_words.js',
   },
@@ -92,12 +92,12 @@ const SUBJECTS = {
 // Story Mode is intentionally not listed here for now (the code still exists
 // and works) — see TODO at the bottom of this file.
 const MODES = [
-  { id: 'study', label: 'Štúdium',        icon: '📖', scene: 'Study', mechanic: null,
-    desc: 'Celý zoznam slovíčok lekcie — bez hry, len na prečítanie.' },
-  { id: 'train', label: 'Tréning',        icon: '⚡', scene: 'Train', mechanic: null,
-    desc: 'Píš preklad s postupnou nápovedou — bez padania, ale s časovým limitom.' },
-  { id: 'drop',  label: 'Padajúce slová', icon: '⬇',  scene: 'Game',  mechanic: 'translation',
-    desc: 'Slovíčka padajú z vrchu — napíš preklad, kým dopadnú.' },
+  { id: 'study', label: 'Study',          icon: '📖', scene: 'Study', mechanic: null,
+    desc: "The lesson's full word list — no game, just reading." },
+  { id: 'train', label: 'Training',       icon: '⚡', scene: 'Train', mechanic: null,
+    desc: 'Type the translation with a gradual hint — no falling, but a time limit.' },
+  { id: 'drop',  label: 'Falling words',  icon: '⬇',  scene: 'Game',  mechanic: 'translation',
+    desc: 'Words fall from the top — type the translation before they land.' },
 ];
 function modeById(id) { return MODES.find(m => m.id === id) || MODES[0]; }
 
@@ -155,7 +155,7 @@ function unitForSelection(subject, ids) {
 function selectionLabel(subject, ids) {
   if (!ids.length) return '';
   if (ids.length === 1) return lessonById(subject, ids[0])?.label || ids[0];
-  return `${ids.length} lekcie`;
+  return `${ids.length} lessons`;
 }
 
 /* Menu state kept outside the scenes, so going Game/Study → back to the
@@ -171,8 +171,8 @@ function selOf(subject) {
 
 // Random words keeps its old, lesson-free shape: pick a mechanic and play.
 const RANDOM_ITEMS = [
-  { mechanic: 'typing',      label: 'Typing',    sub: 'rýchlostný tréning písania' },
-  { mechanic: 'translation', label: 'Translate', sub: 'EN ↔ SK bežná slovná zásoba' },
+  { mechanic: 'typing',      label: 'Typing',    sub: 'speed typing drill' },
+  { mechanic: 'translation', label: 'Translate', sub: 'EN ↔ SK everyday vocabulary' },
 ];
 
 // Maps an in-game mechanic + unit to the leaderboard's MODE_META key. Keeps
@@ -836,15 +836,15 @@ async function loadWords() {
   }
   // Unshift = oldest, so it stays below the weekly lessons in the newest-first menu.
   lessons.english.unshift({
-    id: 'Nationalities', label: 'Nationalities', topic: 'krajiny a národnosti',
-    group: 'Témy', words: natPairs,
+    id: 'Nationalities', label: 'Nationalities', topic: 'countries and nationalities',
+    group: 'Topics', words: natPairs,
   });
   trickyUnits['Nationalities'] = natPairs;
   UNIT_LABELS['Nationalities'] = { left: 'Country', right: 'Nationality' };
 
   /* Backwards compatibility: an older tricky_words.js (window.TRICKY_WORDS =
      { "Unit name": "en|sk..." }) still works — its units show up as English
-     lessons in a "Staršie" group. Safe to delete once english_words.js holds
+     lessons in an "Older" group. Safe to delete once english_words.js holds
      everything. */
   if (window.TRICKY_WORDS && typeof window.TRICKY_WORDS === 'object') {
     for (const [unitName, text] of Object.entries(window.TRICKY_WORDS)) {
@@ -852,7 +852,7 @@ async function loadWords() {
       const pairs = parseTranslationWords(text);
       if (!pairs.length) continue;
       lessons.english.unshift({
-        id: unitName, label: unitName, topic: '', group: 'Staršie', words: pairs,
+        id: unitName, label: unitName, topic: '', group: 'Older', words: pairs,
       });
       trickyUnits[unitName] = pairs;
     }
@@ -1085,7 +1085,7 @@ function menuHeader(scene, title, subtitle, accent, onBack) {
   if (onBack) {
     const bg = scene.add.rectangle(56, 32, 88, 30, 0x1c2a3a)
       .setStrokeStyle(2, 0x334455).setInteractive({ useHandCursor: true });
-    const txt = scene.add.text(56, 32, '← späť', {
+    const txt = scene.add.text(56, 32, '← back', {
       fontSize: '13px', fill: '#9aaabb', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5);
     bg.on('pointerover', () => bg.setFillStyle(0x263444));
@@ -1111,7 +1111,7 @@ function menuHeader(scene, title, subtitle, accent, onBack) {
    start the falling-word game. Writes straight into MENU_STATE.level and
    calls onChange so the screen can refresh its own texts. */
 function difficultyPicker(scene, x, y, onChange) {
-  scene.add.text(x, y - 26, 'OBTIAŽNOSŤ', {
+  scene.add.text(x, y - 26, 'DIFFICULTY', {
     fontSize: '11px', fill: '#8899bb',
     fontFamily: '"Arial Black", Arial, sans-serif', letterSpacing: 4,
   }).setOrigin(0.5);
@@ -1165,7 +1165,7 @@ class HomeScene extends Phaser.Scene {
       stroke: '#004488', strokeThickness: 8,
     }).setOrigin(0.5);
 
-    this.add.text(W / 2, 84, 'Vyber si, čo sa chceš učiť', {
+    this.add.text(W / 2, 84, 'Pick what you want to learn', {
       fontSize: '14px', fill: '#8899bb', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5);
 
@@ -1225,7 +1225,7 @@ class HomeScene extends Phaser.Scene {
       return { bg, txt };
     };
     mkSmBtn(W / 2 - 260, 240, '🏆  LEADERBOARD', () => this.scene.start('Leaderboard'));
-    mkSmBtn(W / 2 + 10,  200, '❓  AKO HRAŤ',     () => this.scene.start('HowToPlay'));
+    mkSmBtn(W / 2 + 10,  200, '❓  HOW TO PLAY',  () => this.scene.start('HowToPlay'));
     this.vkBtn = mkSmBtn(W / 2 + 260, 210, '', () => { vkEnabled = !vkEnabled; this.refreshVk(); });
     this.refreshVk();
   }
@@ -1233,9 +1233,9 @@ class HomeScene extends Phaser.Scene {
   metaFor(id) {
     if (id === 'random') return `${typingTranslationPool.length} slov · vstavané zoznamy`;
     const ls = lessonsFor(id);
-    if (!ls.length) return `⚠  žiadne lekcie — pridaj ich do ${SUBJECTS[id].source}`;
+    if (!ls.length) return `⚠  no lessons yet — add them to ${SUBJECTS[id].source}`;
     const words = ls.reduce((n, l) => n + l.words.length, 0);
-    return `${ls.length} ${ls.length === 1 ? 'lekcia' : ls.length < 5 ? 'lekcie' : 'lekcií'} · ${words} slovíčok`;
+    return `${ls.length} ${ls.length === 1 ? 'lesson' : 'lessons'} · ${words} words`;
   }
 
   refreshVk() {
@@ -1268,7 +1268,7 @@ class SubjectScene extends Phaser.Scene {
     this.VIEW = VIEW;
     this.colX = { study: 500, train: 590, drop: 680 };
 
-    menuHeader(this, this.cfg.label, 'Vyber lekciu a mód, potom stlač Spustiť',
+    menuHeader(this, this.cfg.label, 'Pick a lesson and a mode, then press Start',
       this.cfg.color, () => this.scene.start('Menu'));
 
     /* ── Fixed column header ── */
@@ -1323,12 +1323,12 @@ class SubjectScene extends Phaser.Scene {
       wordWrap: { width: 420 },
     }).setOrigin(0, 0);
 
-    this.startBtn = makeButton(this, 600, 534, 260, 46, 0x0066bb, 'SPUSTIŤ', 22);
+    this.startBtn = makeButton(this, 600, 534, 260, 46, 0x0066bb, 'START', 22);
     this.startBtn.bg.on('pointerdown', () => this.start());
 
     this.diff = difficultyPicker(this, 150, 476, () => this.refreshInfo());
 
-    this.hintTxt = this.add.text(40, 534, 'Zatiaľ sa dá vybrať\njednu lekciu naraz.', {
+    this.hintTxt = this.add.text(40, 534, 'For now you can pick\none lesson at a time.', {
       fontSize: '11px', fill: '#33445a', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0, 0.5);
 
@@ -1345,7 +1345,7 @@ class SubjectScene extends Phaser.Scene {
 
     if (!groups.length) {
       this.listCt.add(this.add.text(W / 2, VIEW.y + 80,
-        `Žiadne lekcie.\nPridaj prvú do ${this.cfg.source} a stlač F5.`, {
+        `No lessons yet.\nAdd one to ${this.cfg.source} and press F5.`, {
           fontSize: '15px', fill: '#445566', fontFamily: 'Arial, sans-serif', align: 'center',
         }).setOrigin(0.5));
       this.contentH = 0;
@@ -1363,7 +1363,7 @@ class SubjectScene extends Phaser.Scene {
         fontSize: '12px', fill: '#8899aa', fontFamily: '"Arial Black", Arial, sans-serif',
       }).setOrigin(0, 0.5);
       const hCnt = this.add.text(VIEW.x + VIEW.w - 24, y + 13,
-        `${g.lessons.length} ${g.lessons.length === 1 ? 'lekcia' : 'lekcie'}`, {
+        `${g.lessons.length} ${g.lessons.length === 1 ? 'lesson' : 'lessons'}`, {
           fontSize: '11px', fill: '#556677', fontFamily: 'Arial, sans-serif',
         }).setOrigin(1, 0.5);
       hBg.on('pointerdown', p => {
@@ -1387,7 +1387,7 @@ class SubjectScene extends Phaser.Scene {
           fontSize: '15px', fill: '#dde6ee', fontFamily: 'Arial, sans-serif',
         }).setOrigin(0, 0.5));
         this.listCt.add(this.add.text(VIEW.x + 16, rowY + 10,
-          `${l.topic ? l.topic + '  ·  ' : ''}${l.words.length} slovíčok`, {
+          `${l.topic ? l.topic + '  ·  ' : ''}${l.words.length} words`, {
             fontSize: '11px', fill: '#667788', fontFamily: 'Arial, sans-serif',
           }).setOrigin(0, 0.5));
 
@@ -1472,8 +1472,8 @@ class SubjectScene extends Phaser.Scene {
     if (!this.selTxt) return;   // bottom bar not built yet (see create())
     const s = this.sel;
     if (!s.mode || !s.ids.length) {
-      this.selTxt.setText('Nič nie je vybrané');
-      this.infoTxt.setText('Zaškrtni políčko v riadku lekcie a v stĺpci módu.');
+      this.selTxt.setText('Nothing selected yet');
+      this.infoTxt.setText('Tick a checkbox: pick the lesson row and the mode column.');
       this.startBtn.bg.setFillStyle(0x223244).disableInteractive();
       this.startBtn.txt.setStyle({ fill: '#556677' });
       return;
@@ -1481,7 +1481,7 @@ class SubjectScene extends Phaser.Scene {
     const m = modeById(s.mode);
     const n = wordsForSelection(this.subject, s.ids).length;
     this.selTxt.setText(`${selectionLabel(this.subject, s.ids)}  ·  ${m.label}`);
-    this.infoTxt.setText(`${m.desc}  (${n} slovíčok)`);
+    this.infoTxt.setText(`${m.desc}  (${n} words)`);
     this.startBtn.bg.setFillStyle(0x0066bb).setInteractive({ useHandCursor: true });
     this.startBtn.txt.setStyle({ fill: '#ffffff' });
   }
@@ -1516,7 +1516,7 @@ class RandomScene extends Phaser.Scene {
 
   create() {
     const cfg = SUBJECTS.random;
-    menuHeader(this, cfg.label, 'Slová zo vstavaných zoznamov, bez väzby na lekcie',
+    menuHeader(this, cfg.label, 'Words from built-in lists, not tied to any lesson',
       cfg.color, () => this.scene.start('Menu'));
 
     this.itemBgs = []; this.itemTxts = [];
@@ -1537,7 +1537,7 @@ class RandomScene extends Phaser.Scene {
     this.add.rectangle(W / 2, 330, 720, 1, 0x2a3c50);
     difficultyPicker(this, 200, 390, () => {});
 
-    this.startBtn = makeButton(this, 560, 390, 260, 52, 0x0066bb, 'SPUSTIŤ', 24);
+    this.startBtn = makeButton(this, 560, 390, 260, 52, 0x0066bb, 'START', 24);
     this.startBtn.bg.on('pointerdown', () => {
       const item = RANDOM_ITEMS[MENU_STATE.randomItem];
       this.scene.start('Game', {
@@ -1581,7 +1581,7 @@ class StudyScene extends Phaser.Scene {
     this.perPage = 16;
 
     menuHeader(this, `📖  ${selectionLabel(this.subject, this.ids)}`,
-      'Prečítaj si slovíčka — potom ich skús v hre', cfg.color,
+      'Read through the words — then try them in a game', cfg.color,
       () => this.scene.start(this.back.scene, this.back.data));
 
     this.rowsCt = this.add.container(0, 0);
@@ -1600,8 +1600,8 @@ class StudyScene extends Phaser.Scene {
       bg.on('pointerout',  () => bg.setFillStyle(0x1c2a3a));
       bg.on('pointerdown', () => this.flip(d));
     };
-    mk(W / 2 - 200, '◄ predošlé', -1);
-    mk(W / 2 + 200, 'ďalšie ►',    1);
+    mk(W / 2 - 200, '◄ previous', -1);
+    mk(W / 2 + 200, 'next ►',      1);
 
     this.render();
   }
@@ -1619,7 +1619,7 @@ class StudyScene extends Phaser.Scene {
     const slice = this.words.slice(this.page * this.perPage, (this.page + 1) * this.perPage);
 
     if (!this.words.length) {
-      this.rowsCt.add(this.add.text(W / 2, 260, 'Táto lekcia nemá žiadne slovíčka.', {
+      this.rowsCt.add(this.add.text(W / 2, 260, 'This lesson has no words.', {
         fontSize: '16px', fill: '#445566', fontFamily: 'Arial, sans-serif',
       }).setOrigin(0.5));
     }
@@ -1641,17 +1641,17 @@ class StudyScene extends Phaser.Scene {
       }).setOrigin(1, 0));
     });
 
-    this.pageTxt.setText(`${this.words.length} slovíčok  ·  strana ${this.page + 1}/${pages}`);
+    this.pageTxt.setText(`${this.words.length} words  ·  page ${this.page + 1}/${pages}`);
   }
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
    TRAIN SCENE — placeholder for the new practice mode
 ════════════════════════════════════════════════════════════════════════════ */
-/* ── Difficulty → timing for Tréning ─────────────────────────────────────────
-   Reuses the same 0–9 OBTIAŽNOSŤ knob shown at the bottom of every screen.
+/* ── Difficulty → timing for Training ────────────────────────────────────────
+   Reuses the same 0–9 DIFFICULTY knob shown at the bottom of every screen.
    Deliberately a plain, exact formula (not a curve) so it can be written down
-   once in "Ako hrať" instead of needing a per-level table there:
+   once in "How to Play" instead of needing a per-level table there:
      time limit  = (11 − level) seconds   → level 9 = 2s … level 0 = 11s
      hint tick   = time limit ÷ 4         → first tick shows the "_ _ _"
                                              outline, later ticks reveal a
@@ -1714,14 +1714,14 @@ class TrainScene extends Phaser.Scene {
     this.missed = [];
     this.vkOn   = vkEnabled;
 
-    menuHeader(this, '⚡  Tréning', selectionLabel(this.subject, this.ids), this.cfg.color,
+    menuHeader(this, '⚡  Training', selectionLabel(this.subject, this.ids), this.cfg.color,
       () => this.leave());
 
     if (!this.words.length) {
-      this.add.text(W / 2, 260, 'Táto lekcia nemá žiadne slovíčka.', {
+      this.add.text(W / 2, 260, 'This lesson has no words.', {
         fontSize: '16px', fill: '#445566', fontFamily: 'Arial, sans-serif',
       }).setOrigin(0.5);
-      const b = makeButton(this, W / 2, 340, 260, 46, 0x1e2a3a, '← späť na lekcie', 18);
+      const b = makeButton(this, W / 2, 340, 260, 46, 0x1e2a3a, '← back to lessons', 18);
       b.bg.setStrokeStyle(2, 0x334455); b.txt.setStyle({ fill: '#9aaabb' });
       b.bg.on('pointerdown', () => this.leave());
       return;
@@ -1795,8 +1795,8 @@ class TrainScene extends Phaser.Scene {
     const { timeLimitMs, hintMs } = trainTiming(MENU_STATE.level);
     this.timeLimitMs = timeLimitMs;
 
-    this.progressTxt.setText(`Otázka ${this.idx + 1} / ${this.total}   ·   skóre ${this.score}`);
-    this.promptSideTxt.setText(this.toSlovak ? 'PRELOŽ DO SLOVENČINY' : 'PRELOŽ DO ANGLIČTINY');
+    this.progressTxt.setText(`Question ${this.idx + 1} / ${this.total}   ·   score ${this.score}`);
+    this.promptSideTxt.setText(this.toSlovak ? 'TRANSLATE TO SLOVAK' : 'TRANSLATE TO ENGLISH');
     this.promptTxt.setText(this.prompt)
       .setStyle({ fontSize: fitFontSize(this.prompt.length, 34) + 'px' });
     this.feedbackTxt.setText('');
@@ -1841,7 +1841,7 @@ class TrainScene extends Phaser.Scene {
   }
 
   renderTyped() {
-    this.typedTxt.setText(this.typed ? `Píšeš: ${this.typed}` : '');
+    this.typedTxt.setText(this.typed ? `Typing: ${this.typed}` : '');
   }
 
   revealNext() {
@@ -1918,7 +1918,7 @@ class TrainScene extends Phaser.Scene {
     this.locked = true;
     this.clearTimers();
     this.score += 1;
-    this.feedbackTxt.setText('✓ správne!').setStyle({ fill: '#66ff99' });
+    this.feedbackTxt.setText('✓ correct!').setStyle({ fill: '#66ff99' });
     this.revealFullTarget();
     this.time.delayedCall(650, () => this.advance());
 
@@ -1929,7 +1929,7 @@ class TrainScene extends Phaser.Scene {
     this.clearTimers();
     this.missed.push(this.pair);
     this.bar.width = 0;
-    this.feedbackTxt.setText(`✗ správne bolo: ${this.target}`).setStyle({ fill: '#ff8866' });
+    this.feedbackTxt.setText(`✗ correct answer: ${this.target}`).setStyle({ fill: '#ff8866' });
     this.revealFullTarget();
     this.time.delayedCall(1400, () => this.advance());
   }
@@ -1949,12 +1949,12 @@ class TrainScene extends Phaser.Scene {
     this.add.text(W / 2, 130, `${this.score} / ${n}`, {
       fontSize: '54px', fill: this.cfg.color, fontFamily: '"Arial Black", Arial, sans-serif',
     }).setOrigin(0.5);
-    this.add.text(W / 2, 190, this.score === n ? 'Všetko správne! 🎉' : 'Hotovo', {
+    this.add.text(W / 2, 190, this.score === n ? 'All correct! 🎉' : 'Done', {
       fontSize: '16px', fill: '#aabbcc', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5);
 
     if (this.missed.length) {
-      this.add.text(W / 2, 230, 'Pomýlil(a) si sa v:', {
+      this.add.text(W / 2, 230, 'You missed:', {
         fontSize: '12px', fill: '#8899aa', fontFamily: 'Arial, sans-serif',
       }).setOrigin(0.5);
       this.missed.slice(0, 8).forEach((p, i) => {
@@ -1971,13 +1971,13 @@ class TrainScene extends Phaser.Scene {
 
     const btnY = 470;
     if (this.missed.length) {
-      const rb = makeButton(this, W / 2 - 150, btnY, 280, 46, 0x0066bb, 'Skúsiť znova chybné', 17);
+      const rb = makeButton(this, W / 2 - 150, btnY, 280, 46, 0x0066bb, 'Retry the missed ones', 17);
       rb.bg.on('pointerdown', () => this.retryMissed());
-      const bb = makeButton(this, W / 2 + 150, btnY, 220, 46, 0x1e2a3a, '← späť na lekcie', 17);
+      const bb = makeButton(this, W / 2 + 150, btnY, 220, 46, 0x1e2a3a, '← back to lessons', 17);
       bb.bg.setStrokeStyle(2, 0x334455); bb.txt.setStyle({ fill: '#9aaabb' });
       bb.bg.on('pointerdown', () => this.leave());
     } else {
-      const bb = makeButton(this, W / 2, btnY, 260, 46, 0x1e2a3a, '← späť na lekcie', 18);
+      const bb = makeButton(this, W / 2, btnY, 260, 46, 0x1e2a3a, '← back to lessons', 18);
       bb.bg.setStrokeStyle(2, 0x334455); bb.txt.setStyle({ fill: '#9aaabb' });
       bb.bg.on('pointerdown', () => this.leave());
     }
@@ -3095,102 +3095,103 @@ class HowToPlayScene extends Phaser.Scene {
     this.add.rectangle(W / 2, H / 2, W, H, 0x0d0d1a);
     drawGrid(this, 0x141428, 0.4);
 
-    this.add.text(W / 2, 26, '❓  AKO HRAŤ', {
+    this.add.text(W / 2, 26, '❓  HOW TO PLAY', {
       fontSize: '30px', fill: '#00ccff',
       fontFamily: '"Arial Black", Arial, sans-serif',
       stroke: '#004488', strokeThickness: 6,
     }).setOrigin(0.5, 0);
 
-    const section = (x, y, txt) => this.add.text(x, y, txt, {
-      fontSize: '12px', fill: '#8899bb', letterSpacing: 2,
-      fontFamily: '"Arial Black", Arial, sans-serif',
-    }).setOrigin(0, 0);
-
-    const line = (x, y, w, txt, col = '#9aabbb') => this.add.text(x, y, txt, {
-      fontSize: '12px', fill: col, fontFamily: 'Arial, sans-serif',
-      wordWrap: { width: w }, lineSpacing: 3,
-    }).setOrigin(0, 0);
-
-    const modeRow = (x, y, w, icon, col, name, desc) => {
-      this.add.rectangle(x, y + 9, 12, 12, col).setOrigin(0, 0.5);
-      this.add.text(x + 18, y, `${icon}  ${name}`, {
-        fontSize: '13.5px', fill: '#ffffff', fontFamily: '"Arial Black", Arial, sans-serif',
-      }).setOrigin(0, 0);
-      return this.add.text(x + 18, y + 18, desc, {
-        fontSize: '11.5px', fill: '#8899aa', fontFamily: 'Arial, sans-serif',
-        wordWrap: { width: w - 18 }, lineSpacing: 2,
-      }).setOrigin(0, 0);
+    /* A tiny auto-flowing column: each call stacks below the previous one
+       using its ACTUAL rendered height, not a guessed pixel offset. That
+       way a longer sentence (or a future translation) pushes the next
+       block down instead of overlapping it. */
+    const makeFlow = (x, w, startY) => {
+      let y = startY;
+      return {
+        section: (label) => {
+          const t = this.add.text(x, y, label, {
+            fontSize: '12px', fill: '#8899bb', letterSpacing: 2,
+            fontFamily: '"Arial Black", Arial, sans-serif',
+          }).setOrigin(0, 0);
+          y += (t.height || 16) + 8;
+        },
+        line: (txt, col) => {
+          const t = this.add.text(x, y, txt, {
+            fontSize: '12px', fill: col || '#9aabbb', fontFamily: 'Arial, sans-serif',
+            wordWrap: { width: w }, lineSpacing: 3,
+          }).setOrigin(0, 0);
+          y += (t.height || 14) + 10;
+        },
+        modeRow: (icon, colHex, name, desc) => {
+          this.add.rectangle(x, y + 9, 12, 12, colHex).setOrigin(0, 0.5);
+          this.add.text(x + 18, y, `${icon}  ${name}`, {
+            fontSize: '13.5px', fill: '#ffffff', fontFamily: '"Arial Black", Arial, sans-serif',
+          }).setOrigin(0, 0);
+          const d = this.add.text(x + 18, y + 18, desc, {
+            fontSize: '11.5px', fill: '#8899aa', fontFamily: 'Arial, sans-serif',
+            wordWrap: { width: w - 18 }, lineSpacing: 2,
+          }).setOrigin(0, 0);
+          y += 18 + (d.height || 14) + 16;
+        },
+        gap: (px) => { y += px; },
+        get bottom() { return y; },
+      };
     };
 
-    /* ── Left column: navigácia, ovládanie, pridávanie lekcií ── */
+    /* ── Left column: navigation, controls, adding a lesson ── */
     const LX = 40, LW = 330;
-    section(LX, 66, 'ZÁKLADNÁ NAVIGÁCIA');
-    line(LX, 84, LW,
-      'Na Domovskej obrazovke si vyber predmet: Angličtina — Tricky words, ' +
-      'Science alebo Random slová.');
-    line(LX, 122, LW,
-      'V Angličtine a Science potom v tabuľke zaškrtni jednu lekciu (riadok) ' +
-      'a jeden mód (stĺpec) a stlač SPUSTIŤ.');
-    line(LX, 160, LW,
-      'Science je zatiaľ označené ako Pripravujeme — dlaždica na Domov obrazovke ' +
-      'ešte nereaguje na klik.', '#7a8a55');
-    line(LX, 190, LW,
-      'Random slová nemajú lekcie — len si vyberieš mód (Typing / Translate) ' +
-      'a rovno spustíš.');
-    line(LX, 220, LW,
-      'Posúvač OBTIAŽNOSŤ 0–9 dole je spoločný pre všetky režimy: v Padajúcich ' +
-      'slovách mení rýchlosť pádu, v Tréningu čas na slovo.');
-    line(LX, 250, LW,
-      'V Tréningu platí presne: úroveň 9 = 2s na slovo, každá o 1 nižšia ' +
-      'úroveň = +1s (úroveň 0 = 11s).', '#6a8a55');
+    const left = makeFlow(LX, LW, 66);
+    left.section('GETTING AROUND');
+    left.line('Home screen: pick a subject — English — Tricky words, Science, or Random words.');
+    left.line('In English and Science, tick one lesson (row) and one mode (column) in the table, then press START.');
+    left.line('Science is marked Coming soon — its card on Home doesn\u2019t react to taps yet.', '#7a8a55');
+    left.line('Random words has no lessons — just pick a mode (Typing / Translate) and go.');
+    left.line('The DIFFICULTY 0–9 slider at the bottom is shared everywhere: it changes fall speed in Falling words, and the time per word in Training.');
+    left.line('In Training it\u2019s exact: level 9 = 2s per word, each level down = +1s (level 0 = 11s).', '#6a8a55');
 
-    section(LX, 292, 'OVLÁDANIE');
-    line(LX, 310, LW, 'Backspace = zmazať posledné písmeno   ·   Esc = vymazať / späť');
-    line(LX, 330, LW, '⏸ = pauza (len Padajúce slová)   ·   ⌨️ KLÁVESNICA = zapne/vypne dotykovú klávesnicu');
-    line(LX, 358, LW,
-      'Mäkčene a dĺžne sa netreba trafiť presne — "casto" sa prijme aj za "často".', '#5a6a7a');
-    line(LX, 380, LW,
-      '🌍 Rebríček (Leaderboard) je zdieľaný online, bez pripojenia funguje ' +
-      'aspoň lokálne na tomto zariadení.', '#5a6a7a');
+    left.section('CONTROLS');
+    left.line('Backspace = delete the last letter   ·   Esc = clear / back');
+    left.line('⏸ = pause (Falling words only)   ·   ⌨️ KEYBOARD = toggle the on-screen keyboard');
+    left.line('Accents don\u2019t have to be exact — typing "casto" is accepted for "často".', '#5a6a7a');
+    left.line('🌍 The leaderboard is shared online, and falls back to this device only if you\u2019re offline.', '#5a6a7a');
 
-    section(LX, 422, 'PRIDANIE NOVEJ LEKCIE');
-    line(LX, 440, LW,
-      'Skopíruj blok v english_words.js alebo science_words.js, vyplň id, ' +
-      'label, group a slovíčka, ulož a stlač F5. V kóde hry netreba meniť nič.');
-    line(LX, 482, LW,
-      'Nationalities má vlastný súbor nationality.txt (country|nationality).', '#5a6a7a');
+    left.section('ADDING A NEW LESSON');
+    left.line('Copy a block in english_words.js or science_words.js, fill in id, label, group and words, save, and press F5. Nothing in the game code needs to change.');
+    left.line('Nationalities has its own file — nationality.txt (country|nationality).', '#5a6a7a');
 
-    /* ── Right column: 3 módy ── */
+    /* ── Right column: the 3 modes ── */
     const RX = 410, RW = 350;
-    section(RX, 66, 'MÓDY V TABUĽKE LEKCIÍ');
+    const right = makeFlow(RX, RW, 66);
+    right.section('MODES IN THE LESSON TABLE');
 
-    modeRow(RX, 88, RW, '📖', 0x2a7a9a, 'Štúdium',
-      'Celý zoznam slovíčok danej lekcie na čítanie, so stránkovaním. Žiadna hra, žiadny časový limit.');
+    right.modeRow('📖', 0x2a7a9a, 'Study',
+      'The lesson\u2019s full word list to read, with paging. No game, no time limit.');
 
-    modeRow(RX, 150, RW, '⚡', 0xffcc44, 'Tréning',
-      'Vidíš slovo, píšeš preklad. Zlé písmeno sa vôbec nezapíše a strhne 1s z času, ' +
-      'takže sa nedá "premackať". Po chvíli sa objaví obrys dĺžky slova a potom postupne ' +
-      'písmená ako nápoveda. Na konci skóre a zoznam slov, v ktorých si sa pomýlil — ' +
-      'dajú sa skúsiť znova.');
+    right.modeRow('⚡', 0xffcc44, 'Training',
+      'See a word, type the translation. A wrong key is never typed and costs 1s off ' +
+      'the clock, so mashing keys doesn\u2019t work. After a moment the word\u2019s outline ' +
+      'appears, then letters get revealed one by one as a hint. At the end: a score and ' +
+      'the words you missed — you can retry just those.');
 
-    modeRow(RX, 250, RW, '⬇', 0x44ff88, 'Padajúce slová',
-      'Slovo padá zhora — napíš preklad, kým nedopadne na zem. Netrafené slovo uberie ' +
-      'HP podľa počtu písmen; pri 0 HP je koniec. Úroveň rastie každých 30s (rýchlejšie ' +
-      'slová, kratšie intervaly).');
+    right.modeRow('⬇', 0x44ff88, 'Falling words',
+      'A word falls from the top — type the translation before it lands. A missed word ' +
+      'costs HP equal to its letter count; 0 HP ends the run. Level goes up every 30s ' +
+      '(faster words, shorter intervals).');
 
-    section(RX, 336, 'RANDOM SLOVÁ (bez lekcií)');
-    modeRow(RX, 358, RW, '⌨️', 0x66aaff, 'Typing',
-      'Bežné anglické slová padajú súvisle — rýchlostný tréning písania.');
-    modeRow(RX, 410, RW, '🔤', 0x44ff88, 'Translate',
-      'Bežná slovná zásoba EN↔SK, smer sa strieda náhodne.');
+    right.section('RANDOM WORDS (no lessons)');
+    right.modeRow('⌨️', 0x66aaff, 'Typing',
+      'Ordinary English words keep falling — a speed typing drill.');
+    right.modeRow('🔤', 0x44ff88, 'Translate',
+      'Everyday EN↔SK vocabulary, direction picked at random.');
 
-    this.add.rectangle(W / 2, 468, 720, 1, 0x1e2e3e);
-    line(RX, 480, RW,
-      'Tip: ak si nie si istý slovíčkom, skús ho najprv v Štúdiu, potom v Tréningu ' +
-      'a nakoniec v Padajúcich slovách.', '#5a6a7a');
+    right.gap(6);
+    right.line('Tip: if you\u2019re not sure about a word, try it in Study first, then Training, then Falling words.', '#5a6a7a');
+
+    const bottomY = Math.min(560, Math.max(left.bottom, right.bottom) + 14);
+    this.add.rectangle(W / 2, bottomY, 720, 1, 0x1e2e3e);
 
     // Back button
-    const back = makeButton(this, W / 2, 552, 220, 40, 0x1e2a3a, '← SPÄŤ DO MENU', 16);
+    const back = makeButton(this, W / 2, Math.min(580, bottomY + 32), 220, 40, 0x1e2a3a, '← BACK TO MENU', 16);
     back.bg.setStrokeStyle(2, 0x334455);
     back.txt.setStyle({ fill: '#9aaabb' });
     back.bg.on('pointerdown', () => this.scene.start('Menu'));
@@ -3205,7 +3206,7 @@ class HowToPlayScene extends Phaser.Scene {
       updated at the same time.
    2. Story Mode — the mechanic and the picture loading still work, but it is
       no longer reachable from the menu. To bring it back, add a fourth entry
-      to MODES: { id:'story', label:'Obrázky', icon:'🖼️', scene:'Game',
+      to MODES: { id:'story', label:'Pictures', icon:'🖼️', scene:'Game',
       mechanic:'story' }. Consider showing it only for lessons that actually
       have pictures (storyUnits[lessonId]).
    3. Progress per lesson (learned / practised marks in the table rows) —
