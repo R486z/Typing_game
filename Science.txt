@@ -8,7 +8,8 @@
 #
 # Rules
 #   - The lesson number (1–13) is the lesson's permanent ID. The order of the
-#     blocks in this file does not matter; the menu shows the highest number first.
+#     blocks in this file does not matter; the menu lists them 1 → 13 and puts
+#     the automatic "Final Revision" at the bottom.
 #   - Lines starting with a single # are comments and are ignored.
 #   - Words may contain letters and spaces only – the child has to type them.
 #     No brackets, apostrophes, hyphens or digits. Capital letters are kept

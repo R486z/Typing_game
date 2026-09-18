@@ -76,6 +76,9 @@ const SUBJECTS = {
     label: 'Science', short: 'Science', icon: '🔬', color: '#44ffaa',
     colorHex: 0x44ffaa, lbMode: 'science',
     source: 'Science.txt',
+    // Science lists its lessons in book order (1 → 13) with Final Revision at
+    // the bottom. Subjects without this flag (English) stay newest-first.
+    oldestFirst: true,
     // (Add  comingSoon: true  here to lock the card on Home again.)
   },
   random: {
@@ -107,11 +110,15 @@ let lessons = { english: [], science: [] };
 function lessonsFor(subject) { return lessons[subject] || []; }
 function lessonById(subject, id) { return lessonsFor(subject).find(l => l.id === id) || null; }
 
-/* Newest-first, grouped for display. Group order follows first appearance in
-   the newest-first list, so the current month always sits on top. */
+/* Grouped for display. Default is newest-first (English: the current month sits
+   on top); a subject with `oldestFirst` (Science) keeps the order of the data
+   file. Group order follows first appearance in the displayed list. */
 function lessonGroups(subject) {
   const out = [];
-  for (const l of [...lessonsFor(subject)].reverse()) {
+  const list = SUBJECTS[subject]?.oldestFirst
+    ? [...lessonsFor(subject)]
+    : [...lessonsFor(subject)].reverse();
+  for (const l of list) {
     const name = l.group || 'Lessons';
     let g = out.find(x => x.name === name);
     if (!g) { g = { name, lessons: [] }; out.push(g); }
@@ -912,7 +919,8 @@ async function loadWords() {
 
   /* "Final Revision" — built here from ALL lessons, so nobody has to copy the
      words anywhere (and the copy can never drift out of date). It is pushed
-     last, which puts it on top of the newest-first table, in its own group.
+     last, which puts it at the bottom of the Science table (lessons 1 → 13
+     first), in its own group.
      Training in this lesson asks only SCIENCE_ROUND_SIZE random words per round. */
   const sciCount = lessons.science.length;
   if (sciCount) {
@@ -3282,6 +3290,14 @@ class HowToPlayScene extends Phaser.Scene {
       stroke: '#004488', strokeThickness: 6,
     }).setOrigin(0.5, 0);
 
+    /* The text is longer than the screen, so it lives in a container that
+       scrolls inside a fixed window (between the title and the back button):
+       mouse wheel, drag / swipe, or ↑ ↓ PgUp PgDn Home End. */
+    const VIEW = { x: 0, y: 62, w: W, h: 482 };
+    this.VIEW = VIEW;
+    this.ct = this.add.container(0, 0);
+    const put = o => { this.ct.add(o); return o; };
+
     /* A tiny auto-flowing column: each call stacks below the previous one
        using its ACTUAL rendered height, not a guessed pixel offset. That
        way a longer sentence (or a future translation) pushes the next
@@ -3290,28 +3306,28 @@ class HowToPlayScene extends Phaser.Scene {
       let y = startY;
       return {
         section: (label) => {
-          const t = this.add.text(x, y, label, {
+          const t = put(this.add.text(x, y, label, {
             fontSize: '12px', fill: '#8899bb', letterSpacing: 2,
             fontFamily: '"Arial Black", Arial, sans-serif',
-          }).setOrigin(0, 0);
+          }).setOrigin(0, 0));
           y += (t.height || 16) + 8;
         },
         line: (txt, col) => {
-          const t = this.add.text(x, y, txt, {
+          const t = put(this.add.text(x, y, txt, {
             fontSize: '12px', fill: col || '#9aabbb', fontFamily: 'Arial, sans-serif',
             wordWrap: { width: w }, lineSpacing: 3,
-          }).setOrigin(0, 0);
+          }).setOrigin(0, 0));
           y += (t.height || 14) + 10;
         },
         modeRow: (icon, colHex, name, desc) => {
-          this.add.rectangle(x, y + 9, 12, 12, colHex).setOrigin(0, 0.5);
-          this.add.text(x + 18, y, `${icon}  ${name}`, {
+          put(this.add.rectangle(x, y + 9, 12, 12, colHex).setOrigin(0, 0.5));
+          put(this.add.text(x + 18, y, `${icon}  ${name}`, {
             fontSize: '13.5px', fill: '#ffffff', fontFamily: '"Arial Black", Arial, sans-serif',
-          }).setOrigin(0, 0);
-          const d = this.add.text(x + 18, y + 18, desc, {
+          }).setOrigin(0, 0));
+          const d = put(this.add.text(x + 18, y + 18, desc, {
             fontSize: '11.5px', fill: '#8899aa', fontFamily: 'Arial, sans-serif',
             wordWrap: { width: w - 18 }, lineSpacing: 2,
-          }).setOrigin(0, 0);
+          }).setOrigin(0, 0));
           y += 18 + (d.height || 14) + 16;
         },
         gap: (px) => { y += px; },
@@ -3325,7 +3341,7 @@ class HowToPlayScene extends Phaser.Scene {
     left.section('GETTING AROUND');
     left.line('Home screen: pick a subject — English — Tricky words, Science, or Random words.');
     left.line('In English and Science, tick one lesson (row) and one mode (column) in the table, then press START.');
-    left.line('Science has a starred Final Revision row on top: every lesson mixed together. Training there asks 20 random words per round.', '#7a8a55');
+    left.line('Science has a starred Final Revision row at the bottom: every lesson mixed together. Training there asks 20 random words per round.', '#7a8a55');
     left.line('Random words has no lessons — just pick a mode (Typing / Translate) and go.');
     left.line('The DIFFICULTY 0–9 slider at the bottom is shared everywhere: it changes fall speed in Falling words, and the time per word in Training.');
     left.line('In Training it\u2019s exact: level 9 = 2s per word, each level down = +1s (level 0 = 11s).', '#6a8a55');
@@ -3368,14 +3384,61 @@ class HowToPlayScene extends Phaser.Scene {
     right.gap(6);
     right.line('Tip: if you\u2019re not sure about a word, try it in Study first, then Training, then Falling words.', '#5a6a7a');
 
-    const bottomY = Math.min(560, Math.max(left.bottom, right.bottom) + 14);
-    this.add.rectangle(W / 2, bottomY, 720, 1, 0x1e2e3e);
+    /* ── Scrolling ── */
+    this.contentH = Math.max(left.bottom, right.bottom) + 14 - VIEW.y;
+    const maskG = this.make.graphics({ add: false });
+    maskG.fillRect(VIEW.x, VIEW.y, VIEW.w, VIEW.h);
+    this.ct.setMask(maskG.createGeometryMask());
+    this.scrollY = 0;
 
-    // Back button
-    const back = makeButton(this, W / 2, Math.min(580, bottomY + 32), 220, 40, 0x1e2a3a, '← BACK TO MENU', 16);
+    this.scrollBar = this.add.rectangle(W - 6, VIEW.y, 4, 40, 0x33475e).setOrigin(0.5, 0);
+
+    this.input.on('wheel', (p, go, dx, dy) => this.scrollBy(dy * 0.5));
+    this.input.on('pointermove', p => {
+      if (!p.isDown) return;
+      if (p.y < VIEW.y || p.y > VIEW.y + VIEW.h) return;
+      this.scrollBy(-(p.y - p.prevPosition.y));
+    });
+    this.input.keyboard.on('keydown', e => {
+      const page = VIEW.h * 0.9;
+      if (e.key === 'ArrowDown')      this.scrollBy(40);
+      else if (e.key === 'ArrowUp')   this.scrollBy(-40);
+      else if (e.key === 'PageDown')  this.scrollBy(page);
+      else if (e.key === 'PageUp')    this.scrollBy(-page);
+      else if (e.key === 'Home')      this.scrollBy(-1e6);
+      else if (e.key === 'End')       this.scrollBy(1e6);
+    });
+
+    // Fixed bottom bar: divider, scroll hint (only if there is something to scroll), back button
+    this.add.rectangle(W / 2, VIEW.y + VIEW.h + 2, 720, 1, 0x1e2e3e);
+    if (this.contentH > VIEW.h) {
+      this.add.text(40, 568, '↕  scroll: wheel / drag / ↑ ↓', {
+        fontSize: '11px', fill: '#5a6a7a', fontFamily: 'Arial, sans-serif',
+      }).setOrigin(0, 0.5);
+    }
+    const back = makeButton(this, W / 2, 568, 220, 40, 0x1e2a3a, '← BACK TO MENU', 16);
     back.bg.setStrokeStyle(2, 0x334455);
     back.txt.setStyle({ fill: '#9aaabb' });
     back.bg.on('pointerdown', () => this.scene.start('Menu'));
+
+    this.applyScroll();
+  }
+
+  scrollBy(dy) {
+    this.scrollY += dy;
+    this.applyScroll();
+  }
+
+  applyScroll() {
+    const max = Math.max(0, this.contentH - this.VIEW.h);
+    this.scrollY = Phaser.Math.Clamp(this.scrollY, 0, max);
+    this.ct.y = -this.scrollY;
+
+    // Scrollbar: hidden when everything fits
+    if (max <= 0) { this.scrollBar.setVisible(false); return; }
+    const barH = Math.max(28, this.VIEW.h * (this.VIEW.h / this.contentH));
+    this.scrollBar.setVisible(true).setSize(4, barH);
+    this.scrollBar.y = this.VIEW.y + (this.VIEW.h - barH) * (this.scrollY / max);
   }
 }
 
