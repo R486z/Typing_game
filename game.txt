@@ -1666,6 +1666,23 @@ function trainTiming(level) {
   };
 }
 
+// Long words/phrases ("virtual reality headset") must not run off the 720px-
+// wide screen. Shrink font size (and, for the letter-spaced mask, the gap
+// between letters too) as the text gets longer, instead of a single fixed size.
+function fitFontSize(len, base) {
+  if (len > 26) return Math.round(base * 0.55);
+  if (len > 20) return Math.round(base * 0.65);
+  if (len > 14) return Math.round(base * 0.8);
+  if (len > 9)  return Math.round(base * 0.92);
+  return base;
+}
+function fitLetterSpacing(len) {
+  if (len > 20) return 2;
+  if (len > 14) return 4;
+  if (len > 9)  return 5;
+  return 7;
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    TRAIN SCENE — typing quiz with a letter-by-letter hint, no multiple choice.
    ---------------------------------------------------------------------------
@@ -1732,7 +1749,7 @@ class TrainScene extends Phaser.Scene {
     }).setOrigin(0.5, 0);
 
     this.typedTxt = this.add.text(W / 2, 288, '', {
-      fontSize: '18px', fill: '#8899aa', fontFamily: '"Courier New", monospace',
+      fontSize: '16px', fill: '#8899aa', fontFamily: '"Courier New", monospace',
       align: 'center', wordWrap: { width: 680 },
     }).setOrigin(0.5, 0);
 
@@ -1772,14 +1789,16 @@ class TrainScene extends Phaser.Scene {
     this.target   = this.toSlovak ? pair.sk : pair.en;
     this.pair     = pair;
     this.typed    = '';
-    this.revealed = 0;   // how many non-space characters of the target are shown
+    this.revealed = 0;       // how many letters of the target are shown as hints
+    this.skeleton = false;   // has the "_ _ _" outline itself appeared yet?
 
     const { timeLimitMs, hintMs } = trainTiming(MENU_STATE.level);
     this.timeLimitMs = timeLimitMs;
 
     this.progressTxt.setText(`Otázka ${this.idx + 1} / ${this.total}   ·   skóre ${this.score}`);
     this.promptSideTxt.setText(this.toSlovak ? 'PRELOŽ DO SLOVENČINY' : 'PRELOŽ DO ANGLIČTINY');
-    this.promptTxt.setText(this.prompt);
+    this.promptTxt.setText(this.prompt)
+      .setStyle({ fontSize: fitFontSize(this.prompt.length, 34) + 'px' });
     this.feedbackTxt.setText('');
     this.renderMask();
     this.renderTyped();
@@ -1793,8 +1812,15 @@ class TrainScene extends Phaser.Scene {
         this.bar.width = Math.max(0, 600 * (1 - this.elapsed / this.timeLimitMs));
       },
     });
+    /* First tick just reveals the "_ _ _" outline (how many letters the word
+       has) — no actual letter yet. Every tick after that reveals one more
+       letter. So: nothing for the first hintMs, then the skeleton, then
+       letters — giving a real no-hint window for pure recall first. */
     this.hintTimer = this.time.addEvent({
-      delay: hintMs, loop: true, callback: () => this.revealNext(),
+      delay: hintMs, loop: true, callback: () => {
+        if (!this.skeleton) { this.skeleton = true; this.renderMask(); }
+        else this.revealNext();
+      },
     });
     this.timeoutTimer = this.time.delayedCall(this.timeLimitMs, () => this.onTimeout());
   }
@@ -1802,17 +1828,20 @@ class TrainScene extends Phaser.Scene {
   nonSpaceLen(s) { return s.replace(/\s/g, '').length; }
 
   renderMask() {
+    const size = fitFontSize(this.target.length, 30);
+    this.maskTxt.setStyle({ fontSize: size + 'px', letterSpacing: fitLetterSpacing(this.target.length) });
+    if (!this.skeleton) { this.maskTxt.setText(''); return; }
     let shown = 0;
     const out = [...this.target].map(ch => {
       if (ch === ' ') return ' ';
       shown += 1;
       return shown <= this.revealed ? ch : '_';
-    }).join(' ');
+    }).join('');
     this.maskTxt.setText(out);
   }
 
   renderTyped() {
-    this.typedTxt.setText(this.typed ? `Píšeš: ${this.typed}` : 'Píšeš: _');
+    this.typedTxt.setText(this.typed ? `Píšeš: ${this.typed}` : '');
   }
 
   revealNext() {
@@ -1822,12 +1851,40 @@ class TrainScene extends Phaser.Scene {
     this.renderMask();
   }
 
+  // Same behaviour as the falling-word game: a keystroke is only accepted if
+  // it keeps `typed` a valid prefix of the answer. A wrong key is rejected
+  // (not typed) AND costs 1s off the clock — otherwise a child could just
+  // mash every key and land on the right one by brute force instead of
+  // actually knowing the word. Backspace is never penalised.
   pressLetter(letter) {
     if (this.locked) return;
-    if (this.typed.length >= this.nonSpaceLen(this.target) + 6) return; // safety cap
-    this.typed += letter.toLowerCase();
+    const cand = this.typed + letter.toLowerCase();
+    if (!normalize(this.target).startsWith(normalize(cand))) {
+      this.applyMistakePenalty();
+      if (!this.locked) this.flashTypo();
+      return;
+    }
+    this.typed = cand;
     this.renderTyped();
-    this.checkMatch();
+    if (normalize(this.typed) === normalize(this.target)) this.onCorrect();
+  }
+
+  applyMistakePenalty() {
+    const PENALTY_MS = 1000;
+    this.elapsed = Math.min(this.timeLimitMs, this.elapsed + PENALTY_MS);
+    this.bar.width = Math.max(0, 600 * (1 - this.elapsed / this.timeLimitMs));
+    this.penaltyPop();
+    if (this.elapsed >= this.timeLimitMs) this.onTimeout();
+  }
+
+  penaltyPop() {
+    const t = this.add.text(W / 2 + this.bar.width - 300, 96, '−1s', {
+      fontSize: '13px', fill: '#ff6666', fontFamily: '"Arial Black", Arial, sans-serif',
+    }).setOrigin(0.5);
+    this.tweens.add({
+      targets: t, y: 78, alpha: { from: 1, to: 0 }, duration: 500,
+      onComplete: () => t.destroy(),
+    });
   }
 
   pressBackspace() {
@@ -1836,16 +1893,12 @@ class TrainScene extends Phaser.Scene {
     this.renderTyped();
   }
 
-  checkMatch() {
-    if (normalize(this.typed) === normalize(this.target)) { this.onCorrect(); return; }
-    // Same length but wrong — a little shake, then let them keep correcting.
-    if (normalize(this.typed).length >= normalize(this.target).length) {
-      this.typedTxt.setStyle({ fill: '#ff6666' });
-      this.tweens.add({
-        targets: this.typedTxt, x: { from: W / 2 - 8, to: W / 2 + 8 }, duration: 40, yoyo: true, repeat: 3,
-        onComplete: () => { this.typedTxt.setStyle({ fill: '#8899aa' }); this.typedTxt.x = W / 2; },
-      });
-    }
+  flashTypo() {
+    this.typedTxt.setStyle({ fill: '#ff6666' });
+    this.tweens.add({
+      targets: this.typedTxt, x: { from: W / 2 - 8, to: W / 2 + 8 }, duration: 40, yoyo: true, repeat: 3,
+      onComplete: () => { this.typedTxt.setStyle({ fill: '#8899aa' }); this.typedTxt.x = W / 2; },
+    });
   }
 
   clearTimers() {
@@ -1854,13 +1907,21 @@ class TrainScene extends Phaser.Scene {
     if (this.timeoutTimer) this.timeoutTimer.remove(false);
   }
 
+  // Shows the answer, spelled out, in the same font/spacing rules as the mask.
+  revealFullTarget() {
+    this.skeleton = true;
+    this.revealed = this.nonSpaceLen(this.target);
+    this.renderMask();
+  }
+
   onCorrect() {
     this.locked = true;
     this.clearTimers();
     this.score += 1;
     this.feedbackTxt.setText('✓ správne!').setStyle({ fill: '#66ff99' });
-    this.maskTxt.setText([...this.target].join(' '));
+    this.revealFullTarget();
     this.time.delayedCall(650, () => this.advance());
+
   }
 
   onTimeout() {
@@ -1869,7 +1930,7 @@ class TrainScene extends Phaser.Scene {
     this.missed.push(this.pair);
     this.bar.width = 0;
     this.feedbackTxt.setText(`✗ správne bolo: ${this.target}`).setStyle({ fill: '#ff8866' });
-    this.maskTxt.setText([...this.target].join(' '));
+    this.revealFullTarget();
     this.time.delayedCall(1400, () => this.advance());
   }
 

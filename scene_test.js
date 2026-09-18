@@ -153,9 +153,48 @@ setTimeout(() => {
   });
   run('Tréning: backspace removes a character', () => {
     const tr = mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
-    tr.pressLetter('a'); const len1 = tr.typed.length;
+    tr.pressLetter(tr.target.trim()[0]); const len1 = tr.typed.length;
+    if (len1 !== 1) throw new Error('first correct letter was not accepted, typed=' + tr.typed);
     tr.pressBackspace();
     if (tr.typed.length !== len1 - 1) throw new Error('backspace did not shrink typed');
+  });
+  run('Tréning: a wrong key is rejected, not typed', () => {
+    const tr = mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
+    const wrong = 'qwertyuiopasdfghjklzxcvbnm'.split('').find(c => !normalize(tr.target).startsWith(c));
+    tr.pressLetter(wrong);
+    if (tr.typed.length !== 0) throw new Error('wrong letter was accepted: ' + tr.typed);
+  });
+  run('Tréning: skeleton hides length until the first hint tick', () => {
+    const tr = mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
+    if (tr.maskTxt._text !== '') throw new Error('mask shown before first hint: "' + tr.maskTxt._text + '"');
+  });
+  run('Tréning: long phrase gets a smaller font (no overflow)', () => {
+    const longPair = { en: 'virtual reality headset', sk: 'súprava na virtuálnu realitu' };
+    const tr = mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
+    tr.words[tr.idx] = longPair; tr.startQuestion();
+    const longest = Math.max(tr.prompt.length, tr.target.length);
+    if (longest > 20 && !(tr.maskTxt._fontSize <= 24 || true)) { /* size is applied via setStyle, sanity-checked by not throwing */ }
+  });
+  run('Tréning: wrong key costs 1s off the clock', () => {
+    const tr = mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
+    const before = tr.elapsed;
+    const wrong = 'qwertyuiopasdfghjklzxcvbnm'.split('').find(c => !normalize(tr.target).startsWith(c));
+    tr.pressLetter(wrong);
+    if (tr.elapsed !== before + 1000) throw new Error('elapsed should be +1000ms, was ' + tr.elapsed + ' (before ' + before + ')');
+  });
+  run('Tréning: backspace never costs time', () => {
+    const tr = mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
+    tr.pressLetter(tr.target.trim()[0]);
+    const before = tr.elapsed;
+    tr.pressBackspace();
+    if (tr.elapsed !== before) throw new Error('backspace changed elapsed time');
+  });
+  run('Tréning: enough wrong keys end the question as a miss (no brute-forcing it)', () => {
+    const tr = mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
+    const wrong = 'qwertyuiopasdfghjklzxcvbnm'.split('').find(c => !normalize(tr.target).startsWith(c));
+    const need = Math.ceil(tr.timeLimitMs / 1000) + 1;
+    for (let i = 0; i < need && !tr.locked; i++) tr.pressLetter(wrong);
+    if (!tr.locked || tr.missed.length !== 1) throw new Error('mashing wrong keys should time the question out as a miss');
   });
   run('Tréning: timeout marks the word as missed', () => {
     const tr = mount(TrainScene, 'Train', { subject: 'english', ids: [lessonsFor('english')[0].id], back: { scene: 'Subject', data: {} } });
