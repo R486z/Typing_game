@@ -64,7 +64,7 @@ spacesuit | skafander
 stars | hviezdičky
 to breathe | dýchať
 to explode | explodovať
-universe/space | vesmír
+universe | vesmír | space
 
 ## 5 | Exploring The Night Sky and Stars
 constellations | súhvezdie
