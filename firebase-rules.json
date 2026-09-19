@@ -3,6 +3,10 @@
     "leaderboard": {
       ".read": true,
       ".write": true,
+      ".indexOn": [
+        "score",
+        "mode"
+      ],
       "$entryId": {
         ".validate": "newData.hasChildren(['name','score','mode']) && newData.child('name').isString() && newData.child('name').val().length <= 16 && newData.child('score').isNumber() && newData.child('score').val() >= 0 && newData.child('score').val() <= 999999"
       }

@@ -1003,26 +1003,67 @@ try {
   }
 } catch (err) { console.warn('Firebase unavailable — using local-only leaderboard.', err); }
 
-// Fetches up to 100 highest global scores, sorted descending. Calls
-// cb(null) on any failure (offline, Firebase down, etc.) so callers can
-// fall back to the local list without special-casing errors themselves.
-function fetchGlobalLeaderboard(cb) {
-  if (!fbDb) { cb(null); return; }
-  fbDb.ref('leaderboard').orderByChild('score').limitToLast(100).once('value')
-    .then(snap => {
-      const arr = [];
-      snap.forEach(child => arr.push(child.val()));
-      arr.sort((a, b) => b.score - a.score);
-      cb(arr);
-    })
-    .catch(err => { console.warn('Global leaderboard fetch failed:', err); cb(null); });
+/* What happened the last time we talked to Firebase ('' = fine). The leaderboard
+   screens show it in orange, so a failing write/read is visible on screen
+   instead of silently leaving the shared board empty. */
+let FB_STATUS = { write: '', read: '' };
+const fbErr = e => String((e && (e.code || e.message)) || e);
+
+function fbProblemText() {
+  if (FB_STATUS.write) return `⚠  Your last score was NOT saved to the global leaderboard (${FB_STATUS.write})`;
+  if (FB_STATUS.read)  return `⚠  Global leaderboard could not be loaded (${FB_STATUS.read}) — showing this device only`;
+  return '';
 }
 
-// Fire-and-forget — never blocks or breaks gameplay if it fails.
+/* Fetches global scores, sorted descending, and calls cb(list). Calls cb(null)
+   on any failure (offline, Firebase down, …) so callers can fall back to the
+   local list.
+     mode 'all'  → the 100 best scores of everything
+     any other   → EVERY score of that mode (a busy mode can't push a quiet one
+                   out of the list — the old "top 100 of all, then filter"
+                   hid all Science scores as soon as other modes had bigger ones).
+   NOTE: DataSnapshot.forEach stops as soon as the callback returns something
+   truthy — and `arr.push(...)` returns the new length. The callback therefore
+   must NOT return anything (braces!), otherwise only the first child is read. */
+function fetchGlobalLeaderboard(mode, cb) {
+  if (!fbDb) { FB_STATUS.read = 'Firebase not loaded'; cb(null); return; }
+  const ref = fbDb.ref('leaderboard');
+  const q = (mode && mode !== 'all')
+    ? ref.orderByChild('mode').equalTo(mode)
+    : ref.orderByChild('score').limitToLast(100);
+  q.once('value')
+    .then(snap => {
+      const arr = [];
+      snap.forEach(child => { arr.push(child.val()); });   // braces: see note above
+      arr.sort((a, b) => b.score - a.score);
+      FB_STATUS.read = '';
+      cb(arr);
+    })
+    .catch(err => {
+      FB_STATUS.read = fbErr(err);
+      console.warn('Global leaderboard fetch failed:', err);
+      cb(null);
+    });
+}
+
+// Never throws and never blocks gameplay. Returns a Promise<boolean> (true = the
+// server confirmed the write) so the game-over screen can wait for it before
+// reading the list back; a failure is remembered in FB_STATUS and logged.
 function pushToGlobalLeaderboard(entry) {
-  if (!fbDb) return;
-  try { fbDb.ref('leaderboard').push({ ...entry, ts: Date.now() }); }
-  catch (err) { console.warn('Global leaderboard write failed:', err); }
+  if (!fbDb) { FB_STATUS.write = 'Firebase not loaded'; return Promise.resolve(false); }
+  try {
+    return fbDb.ref('leaderboard').push({ ...entry, ts: Date.now() })
+      .then(() => { FB_STATUS.write = ''; return true; })
+      .catch(err => {
+        FB_STATUS.write = fbErr(err);
+        console.warn('Global leaderboard write failed:', err);
+        return false;
+      });
+  } catch (err) {
+    FB_STATUS.write = fbErr(err);
+    console.warn('Global leaderboard write failed:', err);
+    return Promise.resolve(false);
+  }
 }
 
 /* ── Leaderboard (localStorage) ────────────────────────────────────────────── */
@@ -1051,7 +1092,7 @@ function addToLeaderboard(name, score, startLevel, reachedLevel, kid, mode) {
   lb.sort((a, b) => b.score - a.score);
   if (lb.length > LB_MAX) lb.splice(LB_MAX);
   saveLeaderboard(lb);
-  pushToGlobalLeaderboard(entry);
+  return pushToGlobalLeaderboard(entry);   // Promise<boolean>
 }
 
 /* ── Audio feedback (Web Audio API – no external files needed) ──────────────── */
@@ -2869,6 +2910,8 @@ class GameOverScene extends Phaser.Scene {
     this.nameDisplay = null;
     this.cursorEv    = null;
     this.nameElems   = [];
+    this._gone       = false;   // set on shutdown so late network callbacks don't touch a dead scene
+    this.events.once('shutdown', () => { this._gone = true; });
 
     this.add.rectangle(W / 2, H / 2, W, H, 0x0d0d1a);
     drawGrid(this, 0x141428, 0.6);
@@ -3006,18 +3049,18 @@ class GameOverScene extends Phaser.Scene {
   commitName() {
     if (this.cursorEv) { this.cursorEv.remove(); this.cursorEv = null; }
     this.input.keyboard.off('keydown', this.onNameKey, this);
-    addToLeaderboard(this.nameInput, this.finalScore, this.startLevel, this.reachedLevel, this.kidMode, this.gameMode);
+    const written = addToLeaderboard(this.nameInput, this.finalScore, this.startLevel, this.reachedLevel, this.kidMode, this.gameMode);
     for (const o of this.nameElems) {
       if (typeof o.disableInteractive === 'function') o.disableInteractive();
       o.setVisible(false);
     }
     this.nameElems = [];
-    this.buildLeaderboard(this.nameInput);
+    this.buildLeaderboard(this.nameInput, written);
     this.buildButtons();
   }
 
   /* ── Leaderboard table ── */
-  buildLeaderboard(highlightName) {
+  buildLeaderboard(highlightName, pendingWrite) {
     this._lbHighlight = highlightName;
     this.lbRowElems = [];
 
@@ -3044,7 +3087,19 @@ class GameOverScene extends Phaser.Scene {
     // replaced by the shared global list the moment it arrives, or stays
     // as-is if Firebase can't be reached (offline, etc).
     this._renderLbRows(getLeaderboard(), false);
-    fetchGlobalLeaderboard(arr => { if (arr) this._renderLbRows(arr, true); });
+
+    // Read the shared list only AFTER our own write was confirmed (max 4 s), so
+    // the new score can't be missed by a read that overtakes the write.
+    const settled = pendingWrite
+      ? Promise.race([pendingWrite, new Promise(r => setTimeout(r, 4000))])
+      : Promise.resolve();
+    settled.then(() => {
+      if (this._gone) return;
+      fetchGlobalLeaderboard('all', arr => {
+        if (this._gone) return;
+        this._renderLbRows(arr || getLeaderboard(), !!arr);
+      });
+    });
   }
 
   _renderLbRows(fullList, isGlobal) {
@@ -3058,6 +3113,13 @@ class GameOverScene extends Phaser.Scene {
     const lb = fullList.slice(0, 10);
     const hY = 207;
     const C  = { rank: 90, name: 118, score: 420, level: 470, mode: 555, date: 700 };
+
+    const warn = fbProblemText();
+    if (warn) {
+      push(this.add.text(W / 2, 478, warn, {
+        fontSize: '12px', fill: '#ffaa44', fontFamily: 'Arial, sans-serif',
+      }).setOrigin(0.5));
+    }
 
     if (!lb.length) {
       push(this.add.text(W / 2, hY + 36, 'No entries yet — you will be the first!', {
@@ -3121,9 +3183,11 @@ class LeaderboardScene extends Phaser.Scene {
   constructor() { super('Leaderboard'); }
 
   create() {
-    this.filterMode = 'all'; // 'all' | 'tricky' | 'typing' | 'translation' | 'story'
+    this.filterMode = 'all'; // 'all' | 'tricky' | 'science' | 'typing' | 'translation' | 'story'
     this.tableElems = [];
-    this.globalData = null; // null until the shared Firebase list arrives (or fails)
+    this.globalByMode = {}; // tab id -> shared Firebase list (missing until it arrives; stays missing if it fails)
+    this._gone = false;
+    this.events.once('shutdown', () => { this._gone = true; });
 
     this.add.rectangle(W / 2, H / 2, W, H, 0x0d0d1a);
     drawGrid(this, 0x141428, 0.6);
@@ -3142,36 +3206,31 @@ class LeaderboardScene extends Phaser.Scene {
     this.tabCfg = [
       { id: 'all',         label: 'OVERALL',                   color: '#dddddd' },
       { id: 'tricky',      label: MODE_META.tricky.label,      color: MODE_META.tricky.color },
+      { id: 'science',     label: MODE_META.science.label,     color: MODE_META.science.color },
       { id: 'typing',      label: MODE_META.typing.label,      color: MODE_META.typing.color },
       { id: 'translation', label: MODE_META.translation.label, color: MODE_META.translation.color },
       { id: 'story',       label: MODE_META.story.label,       color: MODE_META.story.color },
     ];
     const N = this.tabCfg.length;
-    const TW = 136, TH = 36, GAP = 6;
+    const TW = 126, TH = 36, GAP = 5;
     const startX = (W - (N * TW + (N - 1) * GAP)) / 2 + TW / 2;
     this.tabBgs = []; this.tabTxts = [];
     this.tabCfg.forEach((cfg, i) => {
       const x = startX + i * (TW + GAP), y = 74;
       const bg = this.add.rectangle(x, y, TW, TH, 0x141e2a).setStrokeStyle(2, 0x223344).setInteractive({ useHandCursor: true });
       const txt = this.add.text(x, y, cfg.label, {
-        fontSize: '12px', fill: cfg.color,
+        fontSize: '11px', fill: cfg.color,
         fontFamily: '"Arial Black", Arial, sans-serif',
       }).setOrigin(0.5);
       this.tabBgs.push(bg); this.tabTxts.push(txt);
       bg.on('pointerover', () => { if (this.filterMode !== cfg.id) bg.setFillStyle(0x1c2838); });
       bg.on('pointerout',  () => { if (this.filterMode !== cfg.id) bg.setFillStyle(0x141e2a); });
-      bg.on('pointerdown', () => { this.filterMode = cfg.id; this.refreshTabs(); this.renderTable(); });
+      bg.on('pointerdown', () => { this.filterMode = cfg.id; this.refreshTabs(); this.renderTable(); this.loadGlobal(cfg.id); });
     });
     this.refreshTabs();
 
     this.renderTable();
-    fetchGlobalLeaderboard(arr => {
-      if (arr) {
-        this.globalData = arr;
-        this.sourceBadge.setText('🌍 global').setStyle({ fill: '#44ffaa' });
-        this.renderTable();
-      }
-    });
+    this.loadGlobal('all');
 
     /* Back button */
     const back = this.add.rectangle(W / 2 - 120, 562, 200, 48, 0x1e2a3a)
@@ -3204,6 +3263,17 @@ class LeaderboardScene extends Phaser.Scene {
     });
   }
 
+  // Loads the shared list for one tab (once). A failure keeps the local list and
+  // re-renders so the orange warning (FB_STATUS) shows up.
+  loadGlobal(mode) {
+    if (this.globalByMode[mode]) return;
+    fetchGlobalLeaderboard(mode, arr => {
+      if (this._gone) return;
+      if (arr) this.globalByMode[mode] = arr;
+      if (this.filterMode === mode) this.renderTable();
+    });
+  }
+
   refreshTabs() {
     this.tabCfg.forEach((cfg, i) => {
       const sel = cfg.id === this.filterMode;
@@ -3219,11 +3289,15 @@ class LeaderboardScene extends Phaser.Scene {
     this.tableElems = [];
     const push = o => { this.tableElems.push(o); return o; };
 
-    const all = this.globalData || getLeaderboard();
-    const lb  = (this.filterMode === 'all'
-      ? all
-      : all.filter(e => (e.mode || 'legacy') === this.filterMode)
+    // Shared list if it has arrived, otherwise this device's own scores.
+    const glob  = this.globalByMode[this.filterMode];
+    const local = getLeaderboard();
+    const lb    = (glob || (this.filterMode === 'all'
+      ? local
+      : local.filter(e => (e.mode || 'legacy') === this.filterMode))
     ).slice(0, 10);
+    this.sourceBadge.setText(glob ? '🌍 global' : '📱 local')
+      .setStyle({ fill: glob ? '#44ffaa' : '#556677' });
 
     const C  = { rank: 90, name: 122, score: 470, level: 528, mode: 610, date: 700 };
     const hY = 106;
@@ -3236,6 +3310,13 @@ class LeaderboardScene extends Phaser.Scene {
     push(this.add.text(C.mode,  hY, 'MODE',   hSt).setOrigin(0.5, 0));
     push(this.add.text(C.date,  hY, 'DATE',   hSt).setOrigin(1, 0));
     push(this.add.rectangle(W / 2, hY + 19, 662, 1, 0x223344));
+
+    const warn = fbProblemText();
+    if (warn) {
+      push(this.add.text(W / 2, 518, warn, {
+        fontSize: '12px', fill: '#ffaa44', fontFamily: 'Arial, sans-serif',
+      }).setOrigin(0.5));
+    }
 
     if (!lb.length) {
       const msg = this.filterMode === 'all'
