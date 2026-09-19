@@ -1816,7 +1816,7 @@ class StudyScene extends Phaser.Scene {
    Reuses the same 0–9 DIFFICULTY knob shown at the bottom of every screen.
    Deliberately a plain, exact formula (not a curve) so it can be written down
    once in "How to Play" instead of needing a per-level table there:
-     time limit  = (11 − level) seconds   → level 9 = 2s … level 0 = 11s
+     time limit  = 2 + 2 × (9 − level) s  → level 9 = 2s, every level down = +2s … level 0 = 20s
      hint tick   = time limit ÷ 4         → first tick shows the "_ _ _"
                                              outline, later ticks reveal a
                                              letter each — so harder levels
@@ -1825,7 +1825,7 @@ class StudyScene extends Phaser.Scene {
 */
 function trainTiming(level) {
   const lvl = Phaser.Math.Clamp(Math.round(level), 0, 9);
-  const timeLimitMs = (11 - lvl) * 1000;
+  const timeLimitMs = (2 + (9 - lvl) * 2) * 1000;
   const hintMs = Math.round(timeLimitMs / 4);
   return { timeLimitMs, hintMs };
 }
@@ -3344,7 +3344,7 @@ class HowToPlayScene extends Phaser.Scene {
     left.line('Science has a starred Final Revision row at the bottom: every lesson mixed together. Training there asks 20 random words per round.', '#7a8a55');
     left.line('Random words has no lessons — just pick a mode (Typing / Translate) and go.');
     left.line('The DIFFICULTY 0–9 slider at the bottom is shared everywhere: it changes fall speed in Falling words, and the time per word in Training.');
-    left.line('In Training it\u2019s exact: level 9 = 2s per word, each level down = +1s (level 0 = 11s).', '#6a8a55');
+    left.line('In Training it\u2019s exact: level 9 = 2s per word, each level down = +2s (level 0 = 20s).', '#6a8a55');
 
     left.section('CONTROLS');
     left.line('Backspace = delete the last letter   ·   Esc = clear / back');
