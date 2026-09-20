@@ -1,0 +1,18 @@
+# WORD DROP – CHANGELOG
+# Shown in the game (menu → CHANGELOG), newest day first, so keep it in English.
+# Format: a date line (17.9.2026), then one "- " line per change.
+# Add new days at the BOTTOM of this file. Lines starting with # are not shown.
+
+17.9.2026
+- Added Study and Training modes.
+- Science unlocked: 13 lessons in book order (1 → 13), with a Final Revision at the end that mixes all lessons.
+
+19.9.2026
+- Training: 2 seconds per word on level 9, and 2 seconds more for each lower level (level 0 = 20 seconds).
+
+20.9.2026
+- Falling words: the level goes up every 90 seconds (was 30).
+- Falling words: after you type the last word on the screen, the next one falls after 1 second.
+- Points per letter: 7 on level 0, +1 for each level (16 on level 9).
+- The default difficulty is level 0.
+- The page updates itself when a new version is released (only from the menu, never during a game).

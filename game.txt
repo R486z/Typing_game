@@ -1388,7 +1388,7 @@ class HomeScene extends Phaser.Scene {
       });
     });
 
-    /* Bottom row: leaderboard / how to play / on-screen keyboard toggle */
+    /* Bottom row: leaderboard / how to play / changelog / on-screen keyboard toggle */
     const mkSmBtn = (x, w, label, onClick) => {
       const bg = this.add.rectangle(x, 512, w, 38, 0x1c2a3a)
         .setStrokeStyle(2, 0x334455).setInteractive({ useHandCursor: true });
@@ -1400,9 +1400,12 @@ class HomeScene extends Phaser.Scene {
       bg.on('pointerdown', onClick);
       return { bg, txt };
     };
-    mkSmBtn(W / 2 - 260, 240, '🏆  LEADERBOARD', () => this.scene.start('Leaderboard'));
-    mkSmBtn(W / 2 + 10,  200, '❓  HOW TO PLAY',  () => this.scene.start('HowToPlay'));
-    this.vkBtn = mkSmBtn(W / 2 + 260, 210, '', () => { vkEnabled = !vkEnabled; this.refreshVk(); });
+    const BW = 176, BGAP = 10;                                  // four equal buttons, centred
+    const bx = i => (W - (4 * BW + 3 * BGAP)) / 2 + BW / 2 + i * (BW + BGAP);
+    mkSmBtn(bx(0), BW, '🏆  LEADERBOARD', () => this.scene.start('Leaderboard'));
+    mkSmBtn(bx(1), BW, '❓  HOW TO PLAY',  () => this.scene.start('HowToPlay'));
+    mkSmBtn(bx(2), BW, '📜  CHANGELOG',    () => this.scene.start('Changelog'));
+    this.vkBtn = mkSmBtn(bx(3), BW, '', () => { vkEnabled = !vkEnabled; this.refreshVk(); });
     this.refreshVk();
   }
 
@@ -3385,7 +3388,81 @@ class LeaderboardScene extends Phaser.Scene {
 /* ════════════════════════════════════════════════════════════════════════════
    HOW TO PLAY SCENE
 ════════════════════════════════════════════════════════════════════════════ */
-class HowToPlayScene extends Phaser.Scene {
+/* ════════════════════════════════════════════════════════════════════════════
+   SCROLL SCENE — base for screens with one long block of text (How to play,
+   Changelog). The subclass builds its content inside `this.ct` (a container) and
+   sets `this.VIEW` = the visible window, then calls setupScroll(view, contentH):
+   mouse wheel, drag / swipe or ↑ ↓ PgUp PgDn Home End scroll it, with a thin
+   scrollbar. buildScrollFooter() adds the divider, the scroll hint and the
+   BACK TO MENU button below the window.
+════════════════════════════════════════════════════════════════════════════ */
+class ScrollScene extends Phaser.Scene {
+  setupScroll(view, contentH) {
+    this.VIEW     = view;
+    this.contentH = contentH;
+    this.scrollY  = 0;
+    const maskG = this.make.graphics({ add: false });
+    maskG.fillRect(view.x, view.y, view.w, view.h);
+    this.ct.setMask(maskG.createGeometryMask());
+
+    this.scrollBar = this.add.rectangle(W - 6, view.y, 4, 40, 0x33475e).setOrigin(0.5, 0);
+
+    this.input.on('wheel', (p, go, dx, dy) => this.scrollBy(dy * 0.5));
+    this.input.on('pointermove', p => {
+      if (!p.isDown) return;
+      if (p.y < view.y || p.y > view.y + view.h) return;
+      this.scrollBy(-(p.y - p.prevPosition.y));
+    });
+    this.input.keyboard.on('keydown', e => {
+      const page = view.h * 0.9;
+      if (e.key === 'ArrowDown')      this.scrollBy(40);
+      else if (e.key === 'ArrowUp')   this.scrollBy(-40);
+      else if (e.key === 'PageDown')  this.scrollBy(page);
+      else if (e.key === 'PageUp')    this.scrollBy(-page);
+      else if (e.key === 'Home')      this.scrollBy(-1e6);
+      else if (e.key === 'End')       this.scrollBy(1e6);
+    });
+  }
+
+  // Divider, "scroll" hint (only visible when there is something to scroll) and the back button.
+  buildScrollFooter() {
+    const view = this.VIEW;
+    this.add.rectangle(W / 2, view.y + view.h + 2, 720, 1, 0x1e2e3e);
+    this.scrollHint = this.add.text(40, 568, '↕  scroll: wheel / drag / ↑ ↓', {
+      fontSize: '11px', fill: '#5a6a7a', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0, 0.5);
+    const back = makeButton(this, W / 2, 568, 220, 40, 0x1e2a3a, '← BACK TO MENU', 16);
+    back.bg.setStrokeStyle(2, 0x334455);
+    back.txt.setStyle({ fill: '#9aaabb' });
+    back.bg.on('pointerdown', () => this.scene.start('Menu'));
+  }
+
+  // Call again when the content height changes (e.g. after the Changelog has loaded).
+  setContentHeight(h) {
+    this.contentH = h;
+    this.applyScroll();
+  }
+
+  scrollBy(dy) {
+    this.scrollY += dy;
+    this.applyScroll();
+  }
+
+  applyScroll() {
+    const max = Math.max(0, this.contentH - this.VIEW.h);
+    this.scrollY = Phaser.Math.Clamp(this.scrollY, 0, max);
+    this.ct.y = -this.scrollY;
+    if (this.scrollHint) this.scrollHint.setVisible(max > 0);
+
+    // Scrollbar: hidden when everything fits
+    if (max <= 0) { this.scrollBar.setVisible(false); return; }
+    const barH = Math.max(28, this.VIEW.h * (this.VIEW.h / this.contentH));
+    this.scrollBar.setVisible(true).setSize(4, barH);
+    this.scrollBar.y = this.VIEW.y + (this.VIEW.h - barH) * (this.scrollY / max);
+  }
+}
+
+class HowToPlayScene extends ScrollScene {
   constructor() { super('HowToPlay'); }
 
   create() {
@@ -3493,61 +3570,112 @@ class HowToPlayScene extends Phaser.Scene {
     right.gap(6);
     right.line('Tip: if you\u2019re not sure about a word, try it in Study first, then Training, then Falling words.', '#5a6a7a');
 
-    /* ── Scrolling ── */
-    this.contentH = Math.max(left.bottom, right.bottom) + 14 - VIEW.y;
-    const maskG = this.make.graphics({ add: false });
-    maskG.fillRect(VIEW.x, VIEW.y, VIEW.w, VIEW.h);
-    this.ct.setMask(maskG.createGeometryMask());
-    this.scrollY = 0;
+    /* ── Scrolling + fixed bottom bar (see ScrollScene) ── */
+    this.setupScroll(VIEW, Math.max(left.bottom, right.bottom) + 14 - VIEW.y);
+    this.buildScrollFooter();
+    this.applyScroll();
+  }
+}
 
-    this.scrollBar = this.add.rectangle(W - 6, VIEW.y, 4, 40, 0x33475e).setOrigin(0.5, 0);
-
-    this.input.on('wheel', (p, go, dx, dy) => this.scrollBy(dy * 0.5));
-    this.input.on('pointermove', p => {
-      if (!p.isDown) return;
-      if (p.y < VIEW.y || p.y > VIEW.y + VIEW.h) return;
-      this.scrollBy(-(p.y - p.prevPosition.y));
-    });
-    this.input.keyboard.on('keydown', e => {
-      const page = VIEW.h * 0.9;
-      if (e.key === 'ArrowDown')      this.scrollBy(40);
-      else if (e.key === 'ArrowUp')   this.scrollBy(-40);
-      else if (e.key === 'PageDown')  this.scrollBy(page);
-      else if (e.key === 'PageUp')    this.scrollBy(-page);
-      else if (e.key === 'Home')      this.scrollBy(-1e6);
-      else if (e.key === 'End')       this.scrollBy(1e6);
-    });
-
-    // Fixed bottom bar: divider, scroll hint (only if there is something to scroll), back button
-    this.add.rectangle(W / 2, VIEW.y + VIEW.h + 2, 720, 1, 0x1e2e3e);
-    if (this.contentH > VIEW.h) {
-      this.add.text(40, 568, '↕  scroll: wheel / drag / ↑ ↓', {
-        fontSize: '11px', fill: '#5a6a7a', fontFamily: 'Arial, sans-serif',
-      }).setOrigin(0, 0.5);
+/* ════════════════════════════════════════════════════════════════════════════
+   CHANGELOG — CHANGELOG.txt, shown newest first.
+     # comment                     ← ignored
+     17.9.2026                     ← a date starts a day (text after the date on
+     - Added Study and Training.      the same line counts as its first entry)
+     - Second entry.               ← "- " starts an entry; a following line
+                                      without "- " continues the previous entry
+   The file is written oldest → newest (append new days at the bottom); the
+   screen reverses it so the latest changes are on top.
+════════════════════════════════════════════════════════════════════════════ */
+function parseChangelog(src) {
+  const days = [];
+  let cur = null;
+  const dateRe = /^(\d{1,2}\.\s?\d{1,2}\.?(?:\s?\d{4})?)(?:\s+(.*))?$/;   // 17.9.2026  |  20.9  |  20.9. Text
+  for (const raw of src.replace(/^\uFEFF/, '').split(/\r?\n/)) {
+    const t = raw.trim();
+    if (!t || t.startsWith('#')) continue;
+    const bullet = t.match(/^[-•*]\s+(.*)$/);
+    const date   = !bullet && t.match(dateRe);
+    if (date) {
+      cur = { date: date[1].replace(/\s+/g, ''), items: [] };
+      days.push(cur);
+      if (date[2]) cur.items.push(date[2]);
+    } else if (bullet) {
+      if (!cur) { cur = { date: '', items: [] }; days.push(cur); }
+      cur.items.push(bullet[1]);
+    } else if (cur && cur.items.length) {
+      cur.items[cur.items.length - 1] += ' ' + t;      // wrapped continuation line
     }
-    const back = makeButton(this, W / 2, 568, 220, 40, 0x1e2a3a, '← BACK TO MENU', 16);
-    back.bg.setStrokeStyle(2, 0x334455);
-    back.txt.setStyle({ fill: '#9aaabb' });
-    back.bg.on('pointerdown', () => this.scene.start('Menu'));
+  }
+  return days.filter(d => d.items.length).reverse();    // newest first
+}
 
+class ChangelogScene extends ScrollScene {
+  constructor() { super('Changelog'); }
+
+  create() {
+    this._gone = false;
+    this.events.once('shutdown', () => { this._gone = true; });
+
+    this.add.rectangle(W / 2, H / 2, W, H, 0x0d0d1a);
+    drawGrid(this, 0x141428, 0.4);
+    this.add.text(W / 2, 26, '📜  CHANGELOG', {
+      fontSize: '30px', fill: '#00ccff',
+      fontFamily: '"Arial Black", Arial, sans-serif',
+      stroke: '#004488', strokeThickness: 6,
+    }).setOrigin(0.5, 0);
+
+    this.VIEW = { x: 0, y: 62, w: W, h: 482 };
+    this.ct = this.add.container(0, 0);
+    this.setupScroll(this.VIEW, 0);
+    this.buildScrollFooter();
     this.applyScroll();
+
+    this.statusTxt = this.add.text(W / 2, 200, 'Loading…', {
+      fontSize: '15px', fill: '#667788', fontFamily: 'Arial, sans-serif',
+      align: 'center', wordWrap: { width: 600 },
+    }).setOrigin(0.5);
+
+    fetch('CHANGELOG.txt?v=' + Date.now())
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(txt => { if (!this._gone) this.renderDays(parseChangelog(txt)); })
+      .catch(e => {
+        if (this._gone) return;
+        this.statusTxt.setText(`Could not load CHANGELOG.txt (${e && e.message ? e.message : e})`)
+          .setStyle({ fill: '#ffaa44' });
+      });
   }
 
-  scrollBy(dy) {
-    this.scrollY += dy;
-    this.applyScroll();
-  }
+  renderDays(days) {
+    if (!days.length) { this.statusTxt.setText('No entries yet.'); return; }
+    this.statusTxt.setVisible(false);
 
-  applyScroll() {
-    const max = Math.max(0, this.contentH - this.VIEW.h);
-    this.scrollY = Phaser.Math.Clamp(this.scrollY, 0, max);
-    this.ct.y = -this.scrollY;
-
-    // Scrollbar: hidden when everything fits
-    if (max <= 0) { this.scrollBar.setVisible(false); return; }
-    const barH = Math.max(28, this.VIEW.h * (this.VIEW.h / this.contentH));
-    this.scrollBar.setVisible(true).setSize(4, barH);
-    this.scrollBar.y = this.VIEW.y + (this.VIEW.h - barH) * (this.scrollY / max);
+    const X = 52, TEXT_X = 72, TEXT_W = W - TEXT_X - 44;
+    let y = 74;
+    days.forEach(day => {
+      if (day.date) {
+        const d = this.add.text(X, y, day.date, {
+          fontSize: '16px', fill: '#44ffaa', fontFamily: '"Arial Black", Arial, sans-serif',
+        }).setOrigin(0, 0);
+        this.ct.add(d);
+        y += (d.height || 20) + 4;
+        this.ct.add(this.add.rectangle(W / 2, y, W - 2 * X, 1, 0x223040));
+        y += 10;
+      }
+      day.items.forEach(item => {
+        this.ct.add(this.add.text(X + 4, y, '•', {
+          fontSize: '14px', fill: '#66ccff', fontFamily: 'Arial, sans-serif',
+        }).setOrigin(0, 0));
+        const t = this.add.text(TEXT_X, y, item, {
+          fontSize: '14px', fill: '#c8d4e0', fontFamily: 'Arial, sans-serif',
+          wordWrap: { width: TEXT_W }, lineSpacing: 3,
+        }).setOrigin(0, 0);
+        this.ct.add(t);
+        y += (t.height || 18) + 8;
+      });
+      y += 16;
+    });
+    this.setContentHeight(y + 4 - this.VIEW.y);
   }
 }
 
@@ -3584,7 +3712,7 @@ class HowToPlayScene extends Phaser.Scene {
    code. Nothing has to be bumped by hand on release. If the host sends no
    ETag/Last-Modified, the watcher simply stays silent. */
 const UPDATE_FILES       = [location.pathname, 'game.txt', 'english_words.js', 'Science.txt',
-                            'words.txt', 'typing_translation.txt', 'nationality.txt'];
+                            'words.txt', 'typing_translation.txt', 'nationality.txt', 'CHANGELOG.txt'];
 const UPDATE_SAFE_SCENES = ['Menu', 'Subject', 'Random'];
 const UPDATE_EVERY_MS    = 10 * 60 * 1000;
 const UPDATE_MIN_GAP_MS  = 60 * 1000;      // visibility/focus events can't trigger more often than this
@@ -3658,7 +3786,7 @@ async function boot() {
     scene: [
       PreloadScene,
       HomeScene, SubjectScene, RandomScene, StudyScene, TrainScene,
-      GameScene, GameOverScene, LeaderboardScene, HowToPlayScene,
+      GameScene, GameOverScene, LeaderboardScene, HowToPlayScene, ChangelogScene,
     ],
     parent: document.body,
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
