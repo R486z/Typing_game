@@ -16,12 +16,15 @@
   </style>
 </head>
 <body>
+  <!-- Our own files are always fetched fresh (?v=timestamp): a reload — also the automatic one
+       from the update watcher in game.txt — must never run an old, cached copy. -->
+  <script>var __v = Date.now();</script>
   <!-- English lessons (Science lessons are loaded from Science.txt by game.txt) -->
-  <script src="english_words.js"></script>
+  <script>document.write('<script src="english_words.js?v=' + __v + '"><\/script>');</script>
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
   <!-- Firebase (global leaderboard) — must load before game.txt -->
   <script src="https://www.gstatic.com/firebasejs/12.19.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/12.19.0/firebase-database-compat.js"></script>
-  <script src="game.txt"></script>
+  <script>document.write('<script src="game.txt?v=' + __v + '"><\/script>');</script>
 </body>
 </html>
