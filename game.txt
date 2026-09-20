@@ -5,7 +5,18 @@ const W            = 800;
 const H            = 600;
 const GROUND_Y     = 510;
 const MAX_HP       = 20;
-const LEVEL_UP_SEC = 30;
+const LEVEL_UP_SEC = 90;          // Falling words: the level rises this often (all falling modes)
+const QUICK_SPAWN_MS = 1000;      // Falling words: empty screen after a correct word → next word after this
+
+/* Falling-words scoring: every LETTER is worth (level + 1) points — 1 on level 0,
+   2 on level 1 … 10 on level 9 — so the same word is worth more the harder you
+   play. The level is the one the game is on when the word is typed (it rises
+   during a run). Spaces in phrases ("gravitational field") don't count. */
+function pointsForWord(word, level) {
+  const letters = [...String(word)].filter(c => c !== ' ').length;
+  const lvl = Math.min(9, Math.max(0, Math.round(level)));
+  return letters * (lvl + 1);
+}
 
 // On-screen keyboard: defaults on for touch devices (phones/tablets), off
 // otherwise. Toggleable from the menu (e.g. for a tablet with a Bluetooth
@@ -1080,10 +1091,10 @@ function isTopTen(score) {
   const lb = getLeaderboard();
   return lb.length < 10 || score > lb[9].score;
 }
-function addToLeaderboard(name, score, startLevel, reachedLevel, kid, mode) {
+function addToLeaderboard(name, score, startLevel, reachedLevel, mode) {
   const entry = {
     name: (name.trim() || 'Anonymous').slice(0, 16),
-    score, startLevel, reachedLevel, kid: !!kid,
+    score, startLevel, reachedLevel,
     mode: mode || 'legacy',
     date: new Date().toLocaleDateString(),
   };
@@ -2248,7 +2259,6 @@ class GameScene extends Phaser.Scene {
 
   init(data) {
     this.startLevel  = typeof data.level === 'number' ? data.level : 3;
-    this.kidMode     = data.kid  || false;
     this.gameMode    = data.mode || 'typing'; // mechanic: 'typing' | 'translation' | 'story'
     this.unit        = data.unit || null;      // lesson id (a key in trickyUnits), or null for Random Words
     // Which leaderboard category this run belongs to, and which menu screen
@@ -2263,12 +2273,9 @@ class GameScene extends Phaser.Scene {
     const b = LEVEL_CONFIG[level];
     let cfg;
     if (this.gameMode === 'translation' || this.gameMode === 'story') {
-      const kidMul = this.kidMode ? 2 : 1;
-      cfg = { speed: b.speed * 0.7 / kidMul, interval: b.interval * 2 * kidMul, pool: b.pool };
+      cfg = { speed: b.speed * 0.7, interval: b.interval * 2, pool: b.pool };
     } else {
-      cfg = this.kidMode
-        ? { speed: b.speed * 0.5, interval: b.interval * 2, pool: b.pool }
-        : b;
+      cfg = b;
     }
     // The on-screen keyboard eats vertical space, shortening the fall
     // distance. Scale speed down proportionally so words take about the
@@ -2473,6 +2480,7 @@ class GameScene extends Phaser.Scene {
 
   beginPlay() {
     this.frozen = false;
+    this._quickSpawnPending = false;
     const cfg = this.getEffectiveCfg(this.currentLevel);
     this.buildPool();
     this.restartSpawnTimer(cfg.interval);
@@ -2534,6 +2542,23 @@ class GameScene extends Phaser.Scene {
     for (const e of this.pauseElems) e.destroy();
     this.pauseElems = [];
     this.startCountdown(() => { this.frozen = false; });
+  }
+
+  /* If the child types the last word on the screen, don't make them stare at an
+     empty screen until the regular timer fires: the next word comes after
+     QUICK_SPAWN_MS. If the regular timer spawns one sooner, this does nothing.
+     The regular timer is restarted afterwards so two words never arrive
+     back-to-back. Works for every falling mode (typing, translate, story,
+     lessons) because they all spawn through spawnWord(). */
+  scheduleQuickSpawn() {
+    if (this._quickSpawnPending || this.dead) return;
+    this._quickSpawnPending = true;
+    this.time.delayedCall(QUICK_SPAWN_MS, () => {
+      this._quickSpawnPending = false;
+      if (this.dead || this.frozen || this.words.length) return;
+      this.spawnWord();
+      this.restartSpawnTimer(this.getEffectiveCfg(this.currentLevel).interval);
+    });
   }
 
   /* ── Spawn ── */
@@ -2708,7 +2733,10 @@ class GameScene extends Phaser.Scene {
     else { this.typed = cand; }
 
     const exact = this.words.find(w => normalize(w.word) === normalize(this.typed));
-    if (exact) { this.destroyWord(exact); this.typed = ''; }
+    if (exact) {
+      this.destroyWord(exact); this.typed = '';
+      if (!this.words.length) this.scheduleQuickSpawn();   // screen is empty now
+    }
 
     this.refreshInput();
     this.highlight();
@@ -2722,7 +2750,7 @@ class GameScene extends Phaser.Scene {
   }
 
   destroyWord(fw) {
-    const pts = fw.word.length * 10 * (this.kidMode ? 2 : 1);
+    const pts = pointsForWord(fw.word, this.currentLevel);
     this.score += pts;
     this.scoreTxt.setText(`Score: ${this.score}`);
 
@@ -2875,7 +2903,6 @@ class GameScene extends Phaser.Scene {
         score:        this.score,
         startLevel:   this.startLevel,
         reachedLevel: this.currentLevel,
-        kid:          this.kidMode,
         mechanic:     this.gameMode,
         unit:         this.unit,
         mode:         this.lbMode,
@@ -2896,7 +2923,6 @@ class GameOverScene extends Phaser.Scene {
     this.finalScore   = data.score        ?? 0;
     this.startLevel   = data.startLevel   ?? 3;
     this.reachedLevel = data.reachedLevel ?? this.startLevel;
-    this.kidMode      = data.kid          || false;
     this.mechanic     = data.mechanic     || 'typing'; // for restarting the same game
     this.unit         = data.unit         || null;
     this.gameMode     = data.mode         || 'typing'; // leaderboard/MODE_META display key
@@ -2932,10 +2958,9 @@ class GameOverScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     /* Info line */
-    const kid  = this.kidMode ? ' · Kid' : '';
     const prog = this.reachedLevel > this.startLevel
       ? `  ·  Reached Level ${this.reachedLevel}` : '';
-    this.add.text(W / 2, 165, `POINTS  ·  Started Level ${this.startLevel}${prog}${kid}`, {
+    this.add.text(W / 2, 165, `POINTS  ·  Started Level ${this.startLevel}${prog}`, {
       fontSize: '14px', fill: '#556677', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5);
 
@@ -3049,7 +3074,7 @@ class GameOverScene extends Phaser.Scene {
   commitName() {
     if (this.cursorEv) { this.cursorEv.remove(); this.cursorEv = null; }
     this.input.keyboard.off('keydown', this.onNameKey, this);
-    const written = addToLeaderboard(this.nameInput, this.finalScore, this.startLevel, this.reachedLevel, this.kidMode, this.gameMode);
+    const written = addToLeaderboard(this.nameInput, this.finalScore, this.startLevel, this.reachedLevel, this.gameMode);
     for (const o of this.nameElems) {
       if (typeof o.disableInteractive === 'function') o.disableInteractive();
       o.setVisible(false);
@@ -3143,9 +3168,8 @@ class GameOverScene extends Phaser.Scene {
       const col   = isNew ? '#88ff88' : i < 3 ? medals[i] : '#667788';
       const rank  = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
       const rs    = { fontSize: '13px', fill: col, fontFamily: 'Arial, sans-serif' };
-      const lvlBase = e.reachedLevel != null && e.reachedLevel !== e.startLevel
+      const lvl   = e.reachedLevel != null && e.reachedLevel !== e.startLevel
         ? `${e.startLevel}→${e.reachedLevel}` : `${e.startLevel ?? '?'}`;
-      const lvl   = e.kid ? `${lvlBase} 👶` : lvlBase;
       const meta  = modeMeta(e.mode);
 
       push(this.add.text(C.rank,  y, rank,              rs).setOrigin(0.5, 0));
@@ -3161,7 +3185,7 @@ class GameOverScene extends Phaser.Scene {
   buildButtons() {
     const pb = makeButton(this, W / 2 - 115, 548, 200, 52, 0x0055aa, 'PLAY AGAIN', 20);
     pb.bg.on('pointerdown', () => this.scene.start('Game', {
-      level: this.startLevel, kid: this.kidMode, mode: this.mechanic,
+      level: this.startLevel, mode: this.mechanic,
       unit: this.unit, lbMode: this.lbMode, back: this.backTo,
     }));
 
@@ -3334,9 +3358,8 @@ class LeaderboardScene extends Phaser.Scene {
       const col  = i < 3 ? medals[i] : (i % 2 === 0 ? '#8899aa' : '#778899');
       const rank = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
       const rs      = { fontSize: '18px', fill: col, fontFamily: i < 3 ? '"Arial Black", Arial, sans-serif' : 'Arial, sans-serif' };
-      const lvlBase = e.reachedLevel != null && e.reachedLevel !== e.startLevel
+      const lvl     = e.reachedLevel != null && e.reachedLevel !== e.startLevel
         ? `${e.startLevel}→${e.reachedLevel}` : `${e.startLevel ?? '?'}`;
-      const lvl     = e.kid ? `${lvlBase} 👶` : lvlBase;
       const meta    = modeMeta(e.mode);
 
       if (i < 3) push(this.add.rectangle(W / 2, y + 14, 662, 36, 0x1a2234).setAlpha(0.6));
@@ -3453,8 +3476,9 @@ class HowToPlayScene extends Phaser.Scene {
 
     right.modeRow('⬇', 0x44ff88, 'Falling words',
       'A word falls from the top — type the translation before it lands. A missed word ' +
-      'costs HP equal to its letter count; 0 HP ends the run. Level goes up every 30s ' +
-      '(faster words, shorter intervals).');
+      'costs HP equal to its letter count; 0 HP ends the run. Level goes up every 90s ' +
+      '(faster words, shorter intervals). If you clear the screen, the next word comes after 1s. ' +
+      'Score: every letter is worth level + 1 points (1 on level 0 … 10 on level 9).');
 
     right.section('RANDOM WORDS (no lessons)');
     right.modeRow('⌨️', 0x66aaff, 'Typing',
