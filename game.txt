@@ -156,7 +156,7 @@ function lessonGroups(subject) {
    at a time, as agreed); raising this number is all that's needed to allow
    "play weeks 2+3+4+5 together" — everything downstream already merges the
    word lists of a multi-lesson selection. */
-const MAX_SELECTED_LESSONS = 1;
+const MAX_SELECTED_LESSONS = Infinity;   // multi-select: tick as many lessons as you like, within one mode
 
 // Merged, de-duplicated word list for a selection of lessons.
 function wordsForSelection(subject, ids) {
@@ -1529,7 +1529,7 @@ class SubjectScene extends Phaser.Scene {
 
     this.diff = difficultyPicker(this, 150, 476, () => this.refreshInfo());
 
-    this.hintTxt = this.add.text(40, 534, 'For now you can pick\none lesson at a time.', {
+    this.hintTxt = this.add.text(40, 534, 'Tick several lessons\nto mix them together.', {
       fontSize: '11px', fill: '#33445a', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0, 0.5);
 
@@ -3693,17 +3693,12 @@ class ChangelogScene extends ScrollScene {
 }
 
 /* ── TODO / next steps ────────────────────────────────────────────────────────
-   1. Multiple lessons at once — set MAX_SELECTED_LESSONS to a higher number
-      (or Infinity). Everything downstream already merges the selected word
-      lists (wordsForSelection / unitForSelection), so no other change is
-      needed. The "one lesson at a time" hint text in SubjectScene should be
-      updated at the same time.
-   2. Story Mode — the mechanic and the picture loading still work, but it is
+   1. Story Mode — the mechanic and the picture loading still work, but it is
       no longer reachable from the menu. To bring it back, add a fourth entry
       to MODES: { id:'story', label:'Pictures', icon:'🖼️', scene:'Game',
       mechanic:'story' }. Consider showing it only for lessons that actually
       have pictures (storyUnits[lessonId]).
-   3. Progress per lesson (learned / practised marks in the table rows) —
+   2. Progress per lesson (learned / practised marks in the table rows) —
       the row layout leaves room on the left for a small indicator.
    4. Study mode could get a "hide Slovak / test yourself" toggle.
    5. (done) Science lessons live in Science.txt; the card on Home is unlocked.
