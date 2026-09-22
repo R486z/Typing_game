@@ -29,6 +29,16 @@ function pointsForWord(word, level) {
 let vkEnabled = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
 // 10 difficulty presets  (index = player-chosen difficulty 0..9)
+/* Extra time on top of LEVEL_CONFIG's own numbers, per level: level 0 = +100%
+   (double time), then 10 percentage points less per level, down to level 9 =
+   +10% (kept as a small cushion rather than 0, per an explicit product
+   decision — dropping to +0% would make level 9 feel identical to the very
+   first, pre-slowdown version). Applied to BOTH the fall speed (slower) and
+   the spawn interval (longer) by the same factor, so how many words can be
+   on screen at once stays the same as before this slowdown — only the pace
+   changes, low levels don't get more cluttered. */
+const FALL_TIME_BONUS = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1];
+
 const LEVEL_CONFIG = [
   { speed:  32, interval: 5000, pool: ['L1']             }, // 0 – Calm warm-up
   { speed:  45, interval: 4300, pool: ['L1']             }, // 1 – Relaxed
@@ -2278,11 +2288,12 @@ class GameScene extends Phaser.Scene {
   /* ── helpers ── */
   getEffectiveCfg(level) {
     const b = LEVEL_CONFIG[level];
+    const slow = 1 + FALL_TIME_BONUS[level];   // 2.0 on level 0 … 1.1 on level 9
     let cfg;
     if (this.gameMode === 'translation' || this.gameMode === 'story') {
-      cfg = { speed: b.speed * 0.7, interval: b.interval * 2, pool: b.pool };
+      cfg = { speed: b.speed * 0.7 / slow, interval: b.interval * 2 * slow, pool: b.pool };
     } else {
-      cfg = b;
+      cfg = { ...b, speed: b.speed / slow, interval: b.interval * slow };
     }
     // The on-screen keyboard eats vertical space, shortening the fall
     // distance. Scale speed down proportionally so words take about the
@@ -3556,7 +3567,9 @@ class HowToPlayScene extends ScrollScene {
       'the words you missed — you can retry just those.');
 
     right.modeRow('⬇', 0x44ff88, 'Falling words',
-      'A word falls from the top — type the translation before it lands. A missed word ' +
+      'A word falls from the top — type the translation before it lands. Lower levels are ' +
+      'more relaxed: level 0 gives twice the pace of level 9 (both fall speed and the gap ' +
+      'between words), easing down 10 percentage points per level. A missed word ' +
       'costs HP equal to its letter count; 0 HP ends the run. Level goes up every 90s ' +
       '(faster words, shorter intervals). If you clear the screen, the next word comes after 1s. ' +
       'Score: every letter is worth 7 points on level 0, plus 1 for each level (16 on level 9).');
