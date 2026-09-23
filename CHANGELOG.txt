@@ -16,3 +16,7 @@
 - Points per letter: 7 on level 0, +1 for each level (16 on level 9).
 - The default difficulty is level 0.
 - The page updates itself when a new version is released (only from the menu, never during a game).
+
+22.9.2026
+- Falling words: lower levels are now noticeably slower (level 0 is twice as relaxed as level 9 — both fall speed and the gap between words), easing down level by level.
+- You can now select several lessons at once within the same mode, e.g. Training for two Science lessons together.
