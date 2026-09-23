@@ -4,6 +4,10 @@
 const W            = 800;
 const H            = 600;
 const GROUND_Y     = 510;
+// Words spawn just below the HUD (HP bar / LVL / Score / Pause / Menu, which end
+// around y=57) so the whole word — never a clipped top line — is visible right
+// away, instead of scrolling up from above the screen.
+const SPAWN_Y      = 90;
 const MAX_HP       = 20;
 const LEVEL_UP_SEC = 90;          // Falling words: the level rises this often (all falling modes)
 const QUICK_SPAWN_MS = 1000;      // Falling words: empty screen after a correct word → next word after this
@@ -2590,7 +2594,7 @@ class GameScene extends Phaser.Scene {
     do { word = this.nextWord(); tries++; } while (active.has(word) && tries < 20);
 
     const obj = this.add.text(
-      Phaser.Math.Between(70, W - 70), -34, word, {
+      Phaser.Math.Between(70, W - 70), SPAWN_Y, word, {
         fontSize: '30px', fill: '#e0e8ff', fontFamily: 'monospace',
         stroke: '#000022', strokeThickness: 4,
       }
@@ -2615,7 +2619,7 @@ class GameScene extends Phaser.Scene {
     const answer = pair.en;
     const IMG = 110;
     const x = Phaser.Math.Between(100, W - 100);
-    const container = this.add.container(x, -(IMG + 40)).setDepth(4);
+    const container = this.add.container(x, SPAWN_Y).setDepth(4);
 
     const frame = this.add.rectangle(0, IMG / 2, IMG + 6, IMG + 6, 0x000000, 0)
       .setStrokeStyle(2, 0x334466);
@@ -2665,7 +2669,7 @@ class GameScene extends Phaser.Scene {
     const label   = enToSk ? `${sides.left} → ${sides.right}` : `${sides.right} → ${sides.left}`;
 
     const x = Phaser.Math.Between(100, W - 100);
-    const container = this.add.container(x, -80).setDepth(4);
+    const container = this.add.container(x, SPAWN_Y).setDepth(4);
 
     const lblTxt = this.add.text(0, 0, label, {
       fontSize: '11px', fill: '#445577', fontFamily: 'Arial, sans-serif',
