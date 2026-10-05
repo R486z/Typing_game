@@ -140,8 +140,13 @@ const MODES = [
     desc: 'Words fall from the top — type the translation before they land.' },
   { id: 'story', label: 'Story',          icon: '🖼️', scene: 'Game',  mechanic: 'story',
     desc: 'Pictures fall from the top — type the English word before they land.',
-    available: l => !!(storyUnits[l.id] && storyUnits[l.id].length) },
+    available: l => !!STORY_DIRS[l.id] },
 ];
+// Story lessons in a selection whose pictures did not load (not uploaded, or
+// index.html opened by double-click, where the browser blocks the pictures).
+function storyMissing(ids) {
+  return ids.filter(id => STORY_DIRS[id] && !(storyUnits[id] && storyUnits[id].length));
+}
 function modeById(id) { return MODES.find(m => m.id === id) || MODES[0]; }
 function modeAvailable(m, lesson) { return !m.available || m.available(lesson); }
 function modesFor(subject) {
@@ -1763,6 +1768,15 @@ class SubjectScene extends Phaser.Scene {
     const cap = (s.mode === 'train' && one && one.roundSize) ? one.roundSize : 0;
     const cnt = (cap && n > cap) ? `${cap} random words out of ${n}` : `${n} words`;
     this.selTxt.setText(`${selectionLabel(this.subject, s.ids)}  ·  ${m.label}`);
+    if (s.mode === 'story' && storyMissing(s.ids).length) {
+      const dir = STORY_DIRS[storyMissing(s.ids)[0]];
+      this.infoTxt.setText(location.protocol === 'file:'
+        ? '⚠  Pictures can’t load when index.html is opened by double-click — start the game with start_server.bat.'
+        : `⚠  Pictures not found — check the folder "${dir}".`);
+      this.startBtn.bg.setFillStyle(0x223244).disableInteractive();
+      this.startBtn.txt.setStyle({ fill: '#556677' });
+      return;
+    }
     this.infoTxt.setText(`${m.desc}  (${cnt})`);
     this.startBtn.bg.setFillStyle(0x0066bb).setInteractive({ useHandCursor: true });
     this.startBtn.txt.setStyle({ fill: '#ffffff' });
