@@ -28,7 +28,8 @@
 // V hre netreba meniť nič — menu sa poskladá samo z tohto súboru.
 //
 // Pozn.: "Nationalities" tu nie je — má vlastný súbor nationality.txt
-//        (formát Country|Nationality) a v menu je v skupine "Témy".
+//        (formát Country|Nationality) a v menu je ako "Unit0 - Nationalities"
+//        hneď pod Unit 0.
 // ─────────────────────────────────────────────────────────────────────────────
 window.ENGLISH_LESSONS = [
 

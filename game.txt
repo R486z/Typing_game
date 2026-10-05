@@ -119,10 +119,18 @@ const SUBJECTS = {
   },
 };
 
-// The three mode columns of a subject table. `mechanic` is what the game
-// engine understands; `scene` is where "START" sends the player.
-// Story Mode is intentionally not listed here for now (the code still exists
-// and works) — see TODO at the bottom of this file.
+/* Story Mode pictures, per lesson: lesson id -> folder with its pictures.
+   Picture name = the English word, lowercase, spaces → "_" (go_caving.png),
+   .png or .jpg. Only lessons listed here get a Story checkbox in the menu —
+   add a line when the pictures for another lesson are ready. */
+const STORY_DIRS = {
+  'en-unit1-p1': 'Tricky words/Unit 1 - story mode',
+};
+
+// The mode columns of a subject table. `mechanic` is what the game engine
+// understands; `scene` is where "START" sends the player. A mode with
+// `available` only gets a checkbox in rows where it returns true (and its
+// column is hidden in subjects where no lesson has it).
 const MODES = [
   { id: 'study', label: 'Study',          icon: '📖', scene: 'Study', mechanic: null,
     desc: "The lesson's full word list — no game, just reading." },
@@ -130,8 +138,15 @@ const MODES = [
     desc: 'Type the translation with a gradual hint — no falling, but a time limit.' },
   { id: 'drop',  label: 'Falling words',  icon: '⬇',  scene: 'Game',  mechanic: 'translation',
     desc: 'Words fall from the top — type the translation before they land.' },
+  { id: 'story', label: 'Story',          icon: '🖼️', scene: 'Game',  mechanic: 'story',
+    desc: 'Pictures fall from the top — type the English word before they land.',
+    available: l => !!(storyUnits[l.id] && storyUnits[l.id].length) },
 ];
 function modeById(id) { return MODES.find(m => m.id === id) || MODES[0]; }
+function modeAvailable(m, lesson) { return !m.available || m.available(lesson); }
+function modesFor(subject) {
+  return MODES.filter(m => !m.available || lessonsFor(subject).some(l => m.available(l)));
+}
 
 /* Lessons per subject, in chronological order (oldest first) as authored in
    the data files. The menu displays them newest-first.
@@ -185,6 +200,7 @@ function unitForSelection(subject, ids) {
   const key = `__combo__${subject}`;
   trickyUnits[key] = wordsForSelection(subject, ids);
   UNIT_LABELS[key] = { left: 'EN', right: 'SK' };
+  storyUnits[key]  = ids.flatMap(id => storyUnits[id] || []);   // Story: pictures of all picked lessons
   return key;
 }
 
@@ -229,8 +245,8 @@ function unitSideLabels(unit) {
   return UNIT_LABELS[unit] || { left: 'EN', right: 'SK' };
 }
 
-// Turns an English answer into the filename convention used under images/story/.
-// "virtual reality headset" -> "virtual_reality_headset" (expects a matching .jpg)
+// Turns an English answer into the Story Mode picture filename (see STORY_DIRS).
+// "go mountain biking" -> "go_mountain_biking" (expects a matching .png or .jpg)
 function storySlug(en) {
   return en.trim().toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -983,9 +999,8 @@ async function loadWords() {
     trickyUnits['sci-revision'] = merged;
   }
 
-  /* "Nationalities" keeps its own .txt file (Country|Nationality) — it is a
-     topic, not a week, so it lands in its own group at the bottom of the
-     English table. */
+  /* "Nationalities" keeps its own .txt file (Country|Nationality). In the
+     menu it is shown as "Unit0 - Nationalities", right below Unit 0. */
   let natPairs = [];
   try {
     const r = await fetch('nationality.txt?v=' + Date.now());
@@ -1004,11 +1019,14 @@ async function loadWords() {
       { en: 'austria', sk: 'austrian' },
     ];
   }
-  // Pushed last, so it stays below the units in the (file-order) menu.
-  lessons.english.push({
-    id: 'Nationalities', label: 'Nationalities', topic: 'countries and nationalities',
-    group: 'Topics', words: natPairs,
-  });
+  // Goes right after Unit 0, in the same group (the id stays 'Nationalities'
+  // so old leaderboard results still match).
+  const natLesson = {
+    id: 'Nationalities', label: 'Unit0 - Nationalities', topic: 'countries and nationalities',
+    group: 'Unit 0', words: natPairs,
+  };
+  const unit0Idx = lessons.english.findIndex(l => l.id === 'en-unit0');
+  lessons.english.splice(unit0Idx + 1, 0, natLesson);   // not found (-1) → goes first
   trickyUnits['Nationalities'] = natPairs;
   UNIT_LABELS['Nationalities'] = { left: 'Country', right: 'Nationality' };
 
@@ -1212,10 +1230,10 @@ function makeButton(scene, x, y, w, h, fillColor, label, fontSize = 22) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   PRELOAD SCENE — tries to load a picture (images/story/<slug>.jpg) for every
-   tricky word. Whatever loads successfully becomes playable in Story Mode;
-   whatever is missing is silently skipped — no manifest file needed, just
-   drop a correctly-named .jpg into images/story/ and reload.
+   PRELOAD SCENE — for every lesson in STORY_DIRS, tries to load a picture
+   (<folder>/<slug>.png or .jpg) for each of its words. Whatever loads becomes
+   playable in Story Mode; whatever is missing is silently skipped — no
+   manifest file needed, just drop a correctly-named picture in and reload.
 ════════════════════════════════════════════════════════════════════════════ */
 class PreloadScene extends Phaser.Scene {
   constructor() { super('Preload'); }
@@ -1239,14 +1257,15 @@ class PreloadScene extends Phaser.Scene {
     // each unit. Each candidate gets a plain numeric index, which becomes
     // the image key; simpler and collision-proof than encoding the slug
     // itself in the key (units can't collide with each other this way).
+    // Only lessons listed in STORY_DIRS are tried (each from its own folder).
     this._storyCandidates = [];
-    Object.entries(trickyUnits).forEach(([unitName, pairs]) => {
+    Object.entries(STORY_DIRS).forEach(([unitName, dir]) => {
       const seenInUnit = new Set();
-      pairs.forEach(p => {
-        const slug = storySlug(p.en);
+      (trickyUnits[unitName] || []).forEach(p => {
+        const slug = storySlug(typedPart(p.en));
         if (seenInUnit.has(slug)) return;
         seenInUnit.add(slug);
-        this._storyCandidates.push({ unitName, en: p.en, sk: p.sk, slug });
+        this._storyCandidates.push({ unitName, en: p.en, sk: p.sk, slug, dir });
       });
     });
 
@@ -1256,7 +1275,7 @@ class PreloadScene extends Phaser.Scene {
     // a word from being added twice).
     const EXTS = ['jpg', 'png'];
     this._storyCandidates.forEach((c, i) => {
-      EXTS.forEach(ext => this.load.image(`story_${i}__${ext}`, `images/story/${c.slug}.${ext}`));
+      EXTS.forEach(ext => this.load.image(`story_${i}__${ext}`, encodeURI(`${c.dir}/${c.slug}.${ext}`)));
     });
 
     const addedIdx = new Set();
@@ -1481,24 +1500,28 @@ class SubjectScene extends Phaser.Scene {
   create() {
     const VIEW = { x: 40, y: 104, w: 720, h: 306 };   // scrollable list viewport
     this.VIEW = VIEW;
-    this.colX = { study: 500, train: 590, drop: 680 };
+    // Mode columns are right-aligned; a 4th column (Story) squeezes them a bit.
+    this.modes = modesFor(this.subject);
+    const step = this.modes.length > 3 ? 80 : 90;
+    this.colX = {};
+    this.modes.forEach((m, i) => { this.colX[m.id] = 680 - (this.modes.length - 1 - i) * step; });
 
     menuHeader(this, this.cfg.label, 'Pick a lesson and a mode, then press Start',
       this.cfg.color, () => this.scene.start('Menu'));
 
     /* ── Fixed column header ── */
-    this.add.text(VIEW.x + 8, 88, 'LESSON', {
+    this.add.text(VIEW.x + 8, 97, 'LESSON', {
       fontSize: '11px', fill: '#667788',
       fontFamily: '"Arial Black", Arial, sans-serif', letterSpacing: 2,
     }).setOrigin(0, 1);
 
-    MODES.forEach(m => {
+    this.modes.forEach(m => {
       const x = this.colX[m.id];
-      this.add.text(x, 70, m.icon, { fontSize: '15px' }).setOrigin(0.5);
-      this.add.text(x, 86, m.label, {
+      this.add.text(x, 78, m.icon, { fontSize: '13px' }).setOrigin(0.5);   // below the subtitle
+      this.add.text(x, 93, m.label, {
         fontSize: '10px', fill: m.soon ? '#8a7a55' : '#aabbcc',
         fontFamily: '"Arial Black", Arial, sans-serif', align: 'center',
-        wordWrap: { width: 84 },
+        wordWrap: { width: step - 6 },
       }).setOrigin(0.5, 0.5);
     });
     this.add.rectangle(W / 2, VIEW.y - 4, 720, 1, 0x2a3c50);
@@ -1633,14 +1656,21 @@ class SubjectScene extends Phaser.Scene {
           fontSize: '15px', fill: l.isRevision ? this.cfg.color : '#dde6ee',
           fontFamily: 'Arial, sans-serif',
         }).setOrigin(0, 0.5);
-        if (lblTxt.width > 350) lblTxt.setScale(350 / lblTxt.width);   // very long book titles
+        const maxW = this.colX[this.modes[0].id] - 22 - tx;   // stop before the first checkbox
+        if (lblTxt.width > maxW) lblTxt.setScale(maxW / lblTxt.width);   // very long book titles
         this.listCt.add(lblTxt);
         this.listCt.add(this.add.text(tx, rowY + 10,
           `${l.topic ? l.topic + '  ·  ' : ''}${l.words.length} words`, {
             fontSize: '11px', fill: '#667788', fontFamily: 'Arial, sans-serif',
           }).setOrigin(0, 0.5));
 
-        MODES.forEach(m => this.addCheckbox(this.colX[m.id], rowY, l.id, m.id));
+        this.modes.forEach(m => {
+          if (modeAvailable(m, l)) { this.addCheckbox(this.colX[m.id], rowY, l.id, m.id); return; }
+          // Not ready for this lesson yet (e.g. Story without pictures)
+          this.listCt.add(this.add.text(this.colX[m.id], rowY, '–', {
+            fontSize: '14px', fill: '#33475e', fontFamily: 'Arial, sans-serif',
+          }).setOrigin(0.5));
+        });
         y += 38;
       });
       y += 6;
@@ -1753,7 +1783,7 @@ class SubjectScene extends Phaser.Scene {
         level:  MENU_STATE.level,
         mode:   m.mechanic,
         unit:   unitForSelection(this.subject, s.ids),
-        lbMode: this.cfg.lbMode,
+        lbMode: m.mechanic === 'story' ? 'story' : this.cfg.lbMode,
         back,
       });
     }
@@ -2653,7 +2683,9 @@ class GameScene extends Phaser.Scene {
 
     const pic = [];
     if (pair.imageKey) {
-      pic.push(this.add.image(0, IMG / 2, pair.imageKey).setDisplaySize(IMG, IMG));
+      const img = this.add.image(0, IMG / 2, pair.imageKey);
+      img.setScale(Math.min(IMG / img.width, IMG / img.height));   // fit the frame, keep proportions
+      pic.push(img);
     } else {
       // No picture for this word yet — placeholder so the mode stays fully
       // playable while pictures are still being added to images/story/.
@@ -3585,6 +3617,7 @@ class HowToPlayScene extends ScrollScene {
     left.section('ADDING A NEW LESSON');
     left.line('English: copy a block in english_words.js. Science: edit Science.txt (## number | title, then english | slovak | hint). A (note) at the end of a word is shown but not typed. Save and press F5 — nothing in the game code needs to change.');
     left.line('Nationalities has its own file — nationality.txt (country|nationality).', '#5a6a7a');
+    left.line('Story pictures: one folder per lesson (STORY_DIRS in game.txt), file name = the English word with _ for spaces, e.g. go_caving.png.', '#5a6a7a');
 
     /* ── Right column: the 3 modes ── */
     const RX = 410, RW = 350;
@@ -3607,6 +3640,10 @@ class HowToPlayScene extends ScrollScene {
       'costs HP equal to its letter count; 0 HP ends the run. Level goes up every 90s ' +
       '(faster words, shorter intervals). If you clear the screen, the next word comes after 1s. ' +
       'Score: every letter is worth 7 points on level 0, plus 1 for each level (16 on level 9).');
+
+    right.modeRow('🖼️', 0xff8844, 'Story',
+      'Like Falling words, but a picture falls instead of a word — type what it shows in English. ' +
+      'Only lessons that already have pictures can be ticked (for now: Unit 1 – Part 1).');
 
     right.section('RANDOM WORDS (no lessons)');
     right.modeRow('⌨️', 0x66aaff, 'Typing',
@@ -3727,11 +3764,8 @@ class ChangelogScene extends ScrollScene {
 }
 
 /* ── TODO / next steps ────────────────────────────────────────────────────────
-   1. Story Mode — the mechanic and the picture loading still work, but it is
-      no longer reachable from the menu. To bring it back, add a fourth entry
-      to MODES: { id:'story', label:'Pictures', icon:'🖼️', scene:'Game',
-      mechanic:'story' }. Consider showing it only for lessons that actually
-      have pictures (storyUnits[lessonId]).
+   1. Story Mode — live for the lessons in STORY_DIRS (now Unit 1 – Part 1).
+      More lessons: put the pictures in a folder and add a line to STORY_DIRS.
    2. Progress per lesson (learned / practised marks in the table rows) —
       the row layout leaves room on the left for a small indicator.
    4. Study mode could get a "hide Slovak / test yourself" toggle.

@@ -24,3 +24,5 @@
 5.10.2026
 - English: added Unit 1 (3 parts).
 - A note in brackets after a word, e.g. "čižmy (vysoké topánky)", is shown but you only type the word itself.
+- English: Nationalities is now "Unit0 - Nationalities", right below Unit 0.
+- New Story mode: pictures fall instead of words, type the English word. Available for Unit 1 – Part 1.
