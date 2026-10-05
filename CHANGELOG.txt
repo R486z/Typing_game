@@ -20,3 +20,7 @@
 22.9.2026
 - Falling words: lower levels are now noticeably slower (level 0 is twice as relaxed as level 9 — both fall speed and the gap between words), easing down level by level.
 - You can now select several lessons at once within the same mode, e.g. Training for two Science lessons together.
+
+5.10.2026
+- English: added Unit 1 (3 parts).
+- A note in brackets after a word, e.g. "čižmy (vysoké topánky)", is shown but you only type the word itself.

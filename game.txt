@@ -100,6 +100,8 @@ const SUBJECTS = {
     label: 'English — Tricky words', short: 'English', icon: '🎯', color: '#66aaff',
     colorHex: 0x66aaff, lbMode: 'tricky',
     source: 'english_words.js',
+    // Menu shows the lessons in file order (Unit 0 → Unit 1 Part 1 → 2 → 3).
+    oldestFirst: true,
   },
   science: {
     label: 'Science', short: 'Science', icon: '🔬', color: '#44ffaa',
@@ -139,8 +141,8 @@ let lessons = { english: [], science: [] };
 function lessonsFor(subject) { return lessons[subject] || []; }
 function lessonById(subject, id) { return lessonsFor(subject).find(l => l.id === id) || null; }
 
-/* Grouped for display. Default is newest-first (English: the current month sits
-   on top); a subject with `oldestFirst` (Science) keeps the order of the data
+/* Grouped for display. Default is newest-first (no subject uses that right now);
+   a subject with `oldestFirst` (Science, English) keeps the order of the data
    file. Group order follows first appearance in the displayed list. */
 function lessonGroups(subject) {
   const out = [];
@@ -741,6 +743,18 @@ function pairLabel(p) {
   return p.hint ? `${p.en} (${p.hint})` : p.en;
 }
 
+/* A note in brackets at the END of a word is shown but never typed:
+     boots | čižmy (vysoké topánky)   ->  the child types only "čižmy".
+   splitNote() returns { main, note }: `main` is what has to be typed,
+   `note` is the bracket part including the brackets (or ''). Brackets
+   anywhere else are not a note and stay part of the word. */
+function splitNote(s) {
+  const m = String(s).match(/^(.*?)\s*(\([^()]*\))\s*$/);
+  return m && m[1].trim() ? { main: m[1].trim(), note: m[2] } : { main: String(s).trim(), note: '' };
+}
+function typedPart(s) { return splitNote(s).main; }
+const TYPABLE = /^[\p{L} ]+$/u;   // what the keyboard handlers accept (spaces are ignored by normalize())
+
 /* ── Science.txt ───────────────────────────────────────────────────────────
      ## 1 | The Globe and Gravity          <- lesson number | title from the book
      Earth | zem                            <- english | slovak
@@ -753,7 +767,7 @@ let SCIENCE_STATUS = { error: '', warnings: [] };
 function parseScienceFile(src, warn) {
   const out = [];
   let cur = null, orphanWarned = false;
-  const typable = /^[\p{L} ]+$/u;
+  const typable = TYPABLE;
   const cp = ch => `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
 
   src.replace(/^\uFEFF/, '').split(/\r?\n/).forEach((raw, i) => {
@@ -782,7 +796,7 @@ function parseScienceFile(src, warn) {
     const [en, sk, hint] = parts;
     if (parts.length < 2 || !en || !sk) { warn.push(`line ${n}: expected  english | slovak  — got "${t}"`); return; }
     if (parts.length > 3) warn.push(`line ${n}: more than 3 columns — the extra ones are ignored`);
-    const bad = [en, sk].find(x => !typable.test(x));
+    const bad = [en, sk].map(typedPart).find(x => !typable.test(x));
     if (bad) {
       const ch = [...bad].find(c => !/[\p{L} ]/u.test(c));
       warn.push(`line ${n}: "${bad}" contains "${ch}" (${cp(ch)}), which can't be typed in the game — line skipped`);
@@ -921,7 +935,14 @@ async function loadWords() {
     if (!Array.isArray(raw)) return;
     raw.forEach((def, i) => {
       const id    = def.id || `${subject}-${i + 1}`;
-      const pairs = Array.isArray(def.words) ? def.words : parseTranslationWords(def.words || '');
+      const all   = Array.isArray(def.words) ? def.words : parseTranslationWords(def.words || '');
+      /* A row whose typed part contains a comma, slash, digit … could never be
+         answered (the game would get stuck on it) — skip it and say so in F12. */
+      const pairs = all.filter(p => {
+        const ok = TYPABLE.test(typedPart(p.en)) && TYPABLE.test(typedPart(p.sk));
+        if (!ok) console.warn(`[Word Drop] ${def.label || id}: "${p.en}|${p.sk}" can't be typed (only letters and spaces, a (note) only at the end) — skipped`);
+        return ok;
+      });
       if (!pairs.length) return;   // empty lesson (e.g. template block) — skip
       lessons[subject].push({
         id,
@@ -983,8 +1004,8 @@ async function loadWords() {
       { en: 'austria', sk: 'austrian' },
     ];
   }
-  // Unshift = oldest, so it stays below the weekly lessons in the newest-first menu.
-  lessons.english.unshift({
+  // Pushed last, so it stays below the units in the (file-order) menu.
+  lessons.english.push({
     id: 'Nationalities', label: 'Nationalities', topic: 'countries and nationalities',
     group: 'Topics', words: natPairs,
   });
@@ -1000,7 +1021,7 @@ async function loadWords() {
       if (lessons.english.some(l => l.id === unitName)) continue;
       const pairs = parseTranslationWords(text);
       if (!pairs.length) continue;
-      lessons.english.unshift({
+      lessons.english.push({
         id: unitName, label: unitName, topic: '', group: 'Older', words: pairs,
       });
       trickyUnits[unitName] = pairs;
@@ -1874,7 +1895,7 @@ class StudyScene extends Phaser.Scene {
       }
       this.rowsCt.add(this.add.text(x + 310, y + 2, p.sk, {
         fontSize: '14px', fill: cfg.color, fontFamily: 'Arial, sans-serif',
-        align: 'right', wordWrap: { width: 300 },
+        align: 'right', wordWrap: { width: Math.max(140, 300 - enTxt.width - 16) },
       }).setOrigin(1, 0));
     });
 
@@ -2003,6 +2024,7 @@ class TrainScene extends Phaser.Scene {
 
     this.feedbackTxt = this.add.text(W / 2, 320, '', {
       fontSize: '15px', fill: '#66ff99', fontFamily: '"Arial Black", Arial, sans-serif',
+      align: 'center', wordWrap: { width: 720 },
     }).setOrigin(0.5, 0);
 
     // Physical + on-screen keyboard funnel through the same two functions.
@@ -2033,8 +2055,12 @@ class TrainScene extends Phaser.Scene {
     const pair = this.words[this.idx];
     // Random direction each question, so both EN→SK and SK→EN get practised.
     this.toSlovak = Math.random() < 0.5;
-    this.prompt   = this.toSlovak ? pair.en : pair.sk;
-    this.target   = this.toSlovak ? pair.sk : pair.en;
+    // "(note)" at the end: shown, never typed — see splitNote().
+    const pr = splitNote(this.toSlovak ? pair.en : pair.sk);
+    const an = splitNote(this.toSlovak ? pair.sk : pair.en);
+    this.prompt     = pr.main;
+    this.target     = an.main;
+    this.answerNote = an.note;   // revealed only after the answer, it may contain a synonym
     this.pair     = pair;
     this.typed    = '';
     this.revealed = 0;       // how many letters of the target are shown as hints
@@ -2048,7 +2074,8 @@ class TrainScene extends Phaser.Scene {
     this.promptTxt.setText(this.prompt)
       .setStyle({ fontSize: fitFontSize(this.prompt.length, 34) + 'px' });
     this.feedbackTxt.setText('');
-    this.hintTxt.setText(this.toSlovak && pair.hint ? `(${pair.hint})` : '');
+    this.hintTxt.setText([pr.note, this.toSlovak && pair.hint ? `(${pair.hint})` : '']
+      .filter(Boolean).join('  '));
     this.renderMask();
     this.renderTyped();
 
@@ -2167,7 +2194,7 @@ class TrainScene extends Phaser.Scene {
     this.locked = true;
     this.clearTimers();
     this.score += 1;
-    this.feedbackTxt.setText('✓ correct!').setStyle({ fill: '#66ff99' });
+    this.feedbackTxt.setText(`✓ correct!${this.answerNote ? '   ' + this.answerNote : ''}`).setStyle({ fill: '#66ff99' });
     this.revealFullTarget();
     this.time.delayedCall(650, () => this.advance());
 
@@ -2178,7 +2205,7 @@ class TrainScene extends Phaser.Scene {
     this.clearTimers();
     this.missed.push(this.pair);
     this.bar.width = 0;
-    this.feedbackTxt.setText(`✗ correct answer: ${this.target}`).setStyle({ fill: '#ff8866' });
+    this.feedbackTxt.setText(`✗ correct answer: ${this.target}${this.answerNote ? ' ' + this.answerNote : ''}`).setStyle({ fill: '#ff8866' });
     this.revealFullTarget();
     this.time.delayedCall(1400, () => this.advance());
   }
@@ -2616,7 +2643,7 @@ class GameScene extends Phaser.Scene {
       tries++;
     } while (activeEN.has(pair.en) && tries < 20);
 
-    const answer = pair.en;
+    const answer = typedPart(pair.en);   // a "(note)" is never typed
     const IMG = 110;
     const x = Phaser.Math.Between(100, W - 100);
     const container = this.add.container(x, SPAWN_Y).setDepth(4);
@@ -2663,8 +2690,10 @@ class GameScene extends Phaser.Scene {
     } while (activeEN.has(pair.en) && tries < 20);
 
     const enToSk  = Math.random() < 0.5;
-    const prompt  = enToSk ? pair.en : pair.sk;
-    const answer  = enToSk ? pair.sk : pair.en;
+    // "(note)" at the end: shown small under the prompt, never typed — see splitNote().
+    const pr      = splitNote(enToSk ? pair.en : pair.sk);
+    const prompt  = pr.main;
+    const answer  = typedPart(enToSk ? pair.sk : pair.en);
     const sides   = unitSideLabels(this.unit);
     const label   = enToSk ? `${sides.left} → ${sides.right}` : `${sides.right} → ${sides.left}`;
 
@@ -2691,8 +2720,9 @@ class GameScene extends Phaser.Scene {
        the Slovak word itself is already unambiguous. The underscores move one
        line down to make room. */
     const parts = [lblTxt, promptTxt, underTxt];
-    if (enToSk && pair.hint) {
-      const hintTxt = this.add.text(0, 44, `(${pair.hint})`, {
+    const noteLine = [pr.note, enToSk && pair.hint ? `(${pair.hint})` : ''].filter(Boolean).join('  ');
+    if (noteLine) {
+      const hintTxt = this.add.text(0, 44, noteLine, {
         fontSize: '13px', fill: '#ffcc44', fontFamily: 'Arial, sans-serif',
         stroke: '#221100', strokeThickness: 2,
       }).setOrigin(0.5, 0);
@@ -3553,7 +3583,7 @@ class HowToPlayScene extends ScrollScene {
     left.line('🌍 The leaderboard is shared online, and falls back to this device only if you\u2019re offline.', '#5a6a7a');
 
     left.section('ADDING A NEW LESSON');
-    left.line('English: copy a block in english_words.js. Science: edit Science.txt (## number | title, then english | slovak | hint). Save and press F5 — nothing in the game code needs to change.');
+    left.line('English: copy a block in english_words.js. Science: edit Science.txt (## number | title, then english | slovak | hint). A (note) at the end of a word is shown but not typed. Save and press F5 — nothing in the game code needs to change.');
     left.line('Nationalities has its own file — nationality.txt (country|nationality).', '#5a6a7a');
 
     /* ── Right column: the 3 modes ── */
