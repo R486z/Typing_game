@@ -3717,11 +3717,17 @@ class ChangelogScene extends ScrollScene {
 
     this.add.rectangle(W / 2, H / 2, W, H, 0x0d0d1a);
     drawGrid(this, 0x141428, 0.4);
-    this.add.text(W / 2, 26, '📜  CHANGELOG', {
+    const title = this.add.text(W / 2, 26, '📜  CHANGELOG', {
       fontSize: '30px', fill: '#00ccff',
       fontFamily: '"Arial Black", Arial, sans-serif',
       stroke: '#004488', strokeThickness: 6,
     }).setOrigin(0.5, 0);
+    // Small note right after the title
+    const note = this.add.text(0, 0, '(AI generated)', {
+      fontSize: '14px', fill: '#667788', fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0, 1);
+    title.x = W / 2 - (note.width + 10) / 2;   // keep title + note centred together
+    note.setPosition(title.x + title.width / 2 + 10, title.y + title.height - 8);
 
     this.VIEW = { x: 0, y: 62, w: W, h: 482 };
     this.ct = this.add.container(0, 0);

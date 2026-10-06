@@ -1,4 +1,4 @@
-# WORD DROP – CHANGELOG
+# WORD DROP – CHANGELOG (AI generated)
 # Shown in the game (menu → CHANGELOG), newest day first, so keep it in English.
 # Format: a date line (17.9.2026), then one "- " line per change.
 # Add new days at the BOTTOM of this file. Lines starting with # are not shown.
