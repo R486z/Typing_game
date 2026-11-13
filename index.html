@@ -2,8 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
   <title>Word Drop – Typing Game</title>
+  <!-- Phones: "Add to Home Screen" opens the game like an app, without the browser bars
+       (the only way to get full screen on an iPhone). -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0d0d1a" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <meta name="apple-mobile-web-app-title" content="Word Drop" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="icon" type="image/png" href="icon-192.png" />
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
@@ -11,6 +21,9 @@
       background: #0d0d1a;
       display: flex; justify-content: center; align-items: center;
       overflow: hidden;
+      touch-action: manipulation;           /* no double-tap zoom while tapping the on-screen keys */
+      -webkit-tap-highlight-color: transparent;
+      -webkit-user-select: none; user-select: none;
     }
     canvas { display: block; }
   </style>

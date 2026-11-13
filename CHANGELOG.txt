@@ -26,3 +26,10 @@
 - A note in brackets after a word, e.g. "čižmy (vysoké topánky)", is shown but you only type the word itself.
 - English: Nationalities is now "Unit0 - Nationalities", right below Unit 0.
 - New Story mode: pictures fall instead of words, type the English word. Available for Unit 1 – Part 1.
+
+21.10.2026
+- Phones: turned sideways, the game now fills the whole screen; Falling words uses the full width and the on-screen keys are bigger.
+- Phones: new FULL SCREEN button in the menu (iPhone: Share → Add to Home Screen opens the game without the browser bars).
+
+13.11.2026
+- Training: new ⏱ TIMER switch in the lesson table — play without a time limit. Hints still appear, and the time per word and the total time are shown.

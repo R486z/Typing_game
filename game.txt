@@ -1,8 +1,20 @@
 'use strict';
 
 /* ── Constants ─────────────────────────────────────────────────────────────── */
-const W            = 800;
+const W            = 800;   // DESIGN width: every screen is laid out for 800 × 600
 const H            = 600;
+
+/* ── Wide screens (phones turned sideways) ──────────────────────────────────
+   On a touch device the canvas grows sideways to match the screen (GW, up to
+   MAX_GW) instead of leaving empty bars. The 800-wide layout stays centred:
+   every camera is scrolled by -SIDE (setupWideScreen). Only Falling words
+   uses the extra room — words fall across the whole width and the on-screen
+   keyboard gets wider keys. Full-screen backgrounds are BG_W wide so they
+   always reach the edges. On a computer GW stays 800 (unchanged game). */
+const MAX_GW = 1600;
+const BG_W   = MAX_GW;
+let   GW     = W;      // current canvas width
+let   SIDE   = 0;      // (GW - W) / 2 — extra room on each side of the 800 layout
 const GROUND_Y     = 510;
 // Words spawn just below the HUD (HP bar / LVL / Score / Pause / Menu, which end
 // around y=57) so the whole word — never a clipped top line — is visible right
@@ -219,6 +231,7 @@ function selectionLabel(subject, ids) {
    lesson table restores what was selected and the chosen difficulty. */
 const MENU_STATE = {
   level: 0,   // default difficulty for every new session (the slider is not remembered across reloads)
+  trainTimer: true,   // Training time limit ON/OFF (⏱ switch in the lesson table) — also not remembered across reloads
   sel: { english: { ids: [], mode: null }, science: { ids: [], mode: null } },
   randomItem: 0,
 };
@@ -1216,8 +1229,9 @@ function capWords(s) {
 function drawGrid(scene, lineColor = 0x1e1e38, alpha = 0.5) {
   const g = scene.add.graphics();
   g.lineStyle(1, lineColor, alpha);
-  for (let x = 0; x <= W; x += 40) g.lineBetween(x, 0, x, H);
-  for (let y = 0; y <= H; y += 40) g.lineBetween(0, y, W, y);
+  const x0 = -(BG_W - W) / 2, x1 = W + (BG_W - W) / 2;   // reaches the edges on wide screens too
+  for (let x = x0; x <= x1; x += 40) g.lineBetween(x, 0, x, H);
+  for (let y = 0; y <= H; y += 40) g.lineBetween(x0, y, x1, y);
   return g;
 }
 
@@ -1244,7 +1258,7 @@ class PreloadScene extends Phaser.Scene {
   constructor() { super('Preload'); }
 
   preload() {
-    this.add.rectangle(W / 2, H / 2, W, H, 0x0d0d1a);
+    this.add.rectangle(W / 2, H / 2, BG_W, H, 0x0d0d1a);
     drawGrid(this, 0x141428, 0.5);
     this.add.text(W / 2, H / 2 - 46, 'WORD DROP', {
       fontSize: '46px', fill: '#00ccff',
@@ -1314,7 +1328,7 @@ class PreloadScene extends Phaser.Scene {
 
 /* Header with an optional back button. Returns nothing — it just draws. */
 function menuHeader(scene, title, subtitle, accent, onBack) {
-  scene.add.rectangle(W / 2, H / 2, W, H, 0x1a1a2e);
+  scene.add.rectangle(W / 2, H / 2, BG_W, H, 0x1a1a2e);
   drawGrid(scene);
 
   if (onBack) {
@@ -1391,7 +1405,7 @@ class HomeScene extends Phaser.Scene {
   constructor() { super('Menu'); }
 
   create() {
-    this.add.rectangle(W / 2, H / 2, W, H, 0x1a1a2e);
+    this.add.rectangle(W / 2, H / 2, BG_W, H, 0x1a1a2e);
     drawGrid(this);
 
     this.add.text(W / 2, 40, 'WORD DROP', {
@@ -1466,6 +1480,37 @@ class HomeScene extends Phaser.Scene {
     mkSmBtn(bx(2), BW, '📜  CHANGELOG',    () => this.scene.start('Changelog'));
     this.vkBtn = mkSmBtn(bx(3), BW, '', () => { vkEnabled = !vkEnabled; this.refreshVk(); });
     this.refreshVk();
+
+    /* Phones / tablets: a FULL SCREEN button hides the browser bars (more room =
+       bigger text). iPhone has no full screen for web pages — the way there is
+       Share → Add to Home Screen, so we show that tip instead. Nothing is shown
+       on a computer or when the game already runs from the home screen. */
+    this.fsBtn = null;
+    if (isTouchDevice() && !isStandalone()) {
+      if (fullscreenSupported()) {
+        const bg = this.add.rectangle(W - 74, 26, 134, 30, 0x1c2a3a)
+          .setStrokeStyle(2, 0x334455).setInteractive({ useHandCursor: true });
+        const txt = this.add.text(W - 74, 26, '', {
+          fontSize: '12px', fill: '#aabbcc', fontFamily: 'Arial, sans-serif',
+        }).setOrigin(0.5);
+        // pointerup (not pointerdown): browsers only allow full screen inside a real tap.
+        bg.on('pointerup', () => toggleFullscreen());
+        this.fsBtn = { bg, txt, on: null };
+      } else if (isIOS()) {
+        this.add.text(W / 2, 562, '📲  Tip: Share → Add to Home Screen — the game then opens in full screen', {
+          fontSize: '12px', fill: '#6f8096', fontFamily: 'Arial, sans-serif',
+        }).setOrigin(0.5);
+      }
+    }
+  }
+
+  update() {
+    // Keeps the label right even when full screen is left with the system back gesture.
+    if (!this.fsBtn) return;
+    const on = isFullscreen();
+    if (on === this.fsBtn.on) return;
+    this.fsBtn.on = on;
+    this.fsBtn.txt.setText(on ? '✕  EXIT FULL SCREEN' : '⛶  FULL SCREEN');
   }
 
   metaFor(id) {
@@ -1585,6 +1630,14 @@ class SubjectScene extends Phaser.Scene {
     this.hintTxt = this.add.text(40, 534, 'Tick several lessons\nto mix them together.', {
       fontSize: '11px', fill: '#33445a', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0, 0.5);
+
+    /* ⏱ TIMER switch — only shown while Training is the chosen mode (it means
+       nothing for the other modes), in the place of the hint text above. */
+    this.timerBtn = makeButton(this, 118, 534, 156, 32, 0x1c2a3a, '', 13);
+    this.timerBtn.bg.on('pointerdown', () => {
+      MENU_STATE.trainTimer = !MENU_STATE.trainTimer;
+      this.refreshInfo();
+    });
 
     this.refreshInfo();
   }
@@ -1755,6 +1808,16 @@ class SubjectScene extends Phaser.Scene {
   refreshInfo() {
     if (!this.selTxt) return;   // bottom bar not built yet (see create())
     const s = this.sel;
+    if (this.timerBtn) {
+      const isTrain = s.mode === 'train';
+      const on = MENU_STATE.trainTimer;
+      this.timerBtn.bg.setVisible(isTrain).setStrokeStyle(2, on ? 0x2a6a4a : 0x6a5a2a);
+      this.timerBtn.txt.setVisible(isTrain).setText(`⏱  TIMER: ${on ? 'ON' : 'OFF'}`)
+        .setStyle({ fill: on ? '#66ffaa' : '#ffcc66' });
+      if (isTrain) this.timerBtn.bg.setInteractive({ useHandCursor: true });
+      else this.timerBtn.bg.disableInteractive();
+      this.hintTxt.setVisible(!isTrain);
+    }
     if (!s.mode || !s.ids.length) {
       this.selTxt.setText('Nothing selected yet');
       this.infoTxt.setText('Tick a checkbox: pick the lesson row and the mode column.');
@@ -1777,7 +1840,8 @@ class SubjectScene extends Phaser.Scene {
       this.startBtn.txt.setStyle({ fill: '#556677' });
       return;
     }
-    this.infoTxt.setText(`${m.desc}  (${cnt})`);
+    const noLimit = s.mode === 'train' && !MENU_STATE.trainTimer ? ' · no time limit' : '';
+    this.infoTxt.setText(`${m.desc}  (${cnt}${noLimit})`);
     this.startBtn.bg.setFillStyle(0x0066bb).setInteractive({ useHandCursor: true });
     this.startBtn.txt.setStyle({ fill: '#ffffff' });
   }
@@ -2021,6 +2085,12 @@ class TrainScene extends Phaser.Scene {
     this.score  = 0;
     this.missed = [];
     this.vkOn   = vkEnabled;
+    /* TIMER OFF (MENU_STATE.trainTimer): no time limit. Hints still come at the
+       difficulty's pace, a wrong key brings the next hint at once (so mashing
+       keys doesn't pay), and a word finished only after it was shown in full
+       goes to the retry list. The seconds per word are shown instead of the bar. */
+    this.timed   = MENU_STATE.trainTimer;
+    this.totalMs = 0;   // TIMER OFF: time spent on all answered words
 
     menuHeader(this, '⚡  Training', selectionLabel(this.subject, this.ids), this.cfg.color,
       () => this.leave());
@@ -2042,6 +2112,11 @@ class TrainScene extends Phaser.Scene {
     // Time bar
     this.barBg = this.add.rectangle(W / 2, 106, 600, 8, 0x1c2a3a).setStrokeStyle(1, 0x2a3c50);
     this.bar   = this.add.rectangle(W / 2 - 300, 106, 600, 8, this.cfg.colorHex).setOrigin(0, 0.5);
+    // TIMER OFF: seconds on this word, in place of the bar
+    this.clockTxt = this.add.text(W / 2, 106, '', {
+      fontSize: '14px', fill: '#8899aa', fontFamily: '"Courier New", monospace',
+    }).setOrigin(0.5);
+    this.barBg.setVisible(this.timed); this.bar.setVisible(this.timed); this.clockTxt.setVisible(!this.timed);
 
     this.promptSideTxt = this.add.text(W / 2, 140, '', {
       fontSize: '12px', fill: '#667788', fontFamily: 'Arial, sans-serif', letterSpacing: 3,
@@ -2109,6 +2184,7 @@ class TrainScene extends Phaser.Scene {
     this.typed    = '';
     this.revealed = 0;       // how many letters of the target are shown as hints
     this.skeleton = false;   // has the "_ _ _" outline itself appeared yet?
+    this.fullyShown = false; // TIMER OFF: every letter was revealed before it was typed
 
     const { timeLimitMs, hintMs } = trainTiming(MENU_STATE.level);
     this.timeLimitMs = timeLimitMs;
@@ -2126,23 +2202,35 @@ class TrainScene extends Phaser.Scene {
     this.bar.width = 600;
     this.bar.setFillStyle(this.cfg.colorHex);
     this.elapsed = 0;
+    this.clockTxt.setText(this.timed ? '' : '⏱ 0.0 s');
     this.tickTimer = this.time.addEvent({
       delay: 50, loop: true, callback: () => {
         this.elapsed += 50;
-        this.bar.width = Math.max(0, 600 * (1 - this.elapsed / this.timeLimitMs));
+        if (this.timed) this.bar.width = Math.max(0, 600 * (1 - this.elapsed / this.timeLimitMs));
+        else this.clockTxt.setText(`⏱ ${(this.elapsed / 1000).toFixed(1)} s`);
       },
     });
     /* First tick just reveals the "_ _ _" outline (how many letters the word
        has) — no actual letter yet. Every tick after that reveals one more
        letter. So: nothing for the first hintMs, then the skeleton, then
        letters — giving a real no-hint window for pure recall first. */
+    this.hintMs = hintMs;
+    this.startHintTimer();
+    this.timeoutTimer = this.timed
+      ? this.time.delayedCall(this.timeLimitMs, () => this.onTimeout())
+      : null;
+  }
+
+  startHintTimer() {
+    if (this.hintTimer) this.hintTimer.remove(false);
     this.hintTimer = this.time.addEvent({
-      delay: hintMs, loop: true, callback: () => {
-        if (!this.skeleton) { this.skeleton = true; this.renderMask(); }
-        else this.revealNext();
-      },
+      delay: this.hintMs, loop: true, callback: () => this.hintStep(),
     });
-    this.timeoutTimer = this.time.delayedCall(this.timeLimitMs, () => this.onTimeout());
+  }
+
+  hintStep() {
+    if (!this.skeleton) { this.skeleton = true; this.renderMask(); }
+    else this.revealNext();
   }
 
   nonSpaceLen(s) { return s.replace(/\s/g, '').length; }
@@ -2168,6 +2256,7 @@ class TrainScene extends Phaser.Scene {
     const max = this.nonSpaceLen(this.target);
     if (this.revealed >= max) return;
     this.revealed += 1;
+    if (this.revealed >= max) this.fullyShown = true;
     this.renderMask();
   }
 
@@ -2190,6 +2279,14 @@ class TrainScene extends Phaser.Scene {
   }
 
   applyMistakePenalty() {
+    if (!this.timed) {
+      // No clock to take time from: the next hint comes right away instead,
+      // and the regular hint rhythm starts again from this moment.
+      this.hintStep();
+      this.startHintTimer();
+      this.penaltyPop('+ hint');
+      return;
+    }
     const PENALTY_MS = 1000;
     this.elapsed = Math.min(this.timeLimitMs, this.elapsed + PENALTY_MS);
     this.bar.width = Math.max(0, 600 * (1 - this.elapsed / this.timeLimitMs));
@@ -2197,8 +2294,9 @@ class TrainScene extends Phaser.Scene {
     if (this.elapsed >= this.timeLimitMs) this.onTimeout();
   }
 
-  penaltyPop() {
-    const t = this.add.text(W / 2 + this.bar.width - 300, 96, '−1s', {
+  penaltyPop(label = '−1s') {
+    const x = this.timed ? W / 2 + this.bar.width - 300 : W / 2 + 70;
+    const t = this.add.text(x, 96, label, {
       fontSize: '13px', fill: '#ff6666', fontFamily: '"Arial Black", Arial, sans-serif',
     }).setOrigin(0.5);
     this.tweens.add({
@@ -2237,8 +2335,17 @@ class TrainScene extends Phaser.Scene {
   onCorrect() {
     this.locked = true;
     this.clearTimers();
-    this.score += 1;
-    this.feedbackTxt.setText(`✓ correct!${this.answerNote ? '   ' + this.answerNote : ''}`).setStyle({ fill: '#66ff99' });
+    const note = this.answerNote ? '   ' + this.answerNote : '';
+    if (!this.timed) this.totalMs += this.elapsed;
+    if (!this.timed && this.fullyShown) {
+      // Typed, but only after the whole word was given away — practise it again.
+      this.missed.push(this.pair);
+      this.feedbackTxt.setText(`whole word was shown — it goes to the retry list${note}`).setStyle({ fill: '#ffcc66' });
+    } else {
+      this.score += 1;
+      const secs = this.timed ? '' : `   ${(this.elapsed / 1000).toFixed(1)} s`;
+      this.feedbackTxt.setText(`✓ correct!${secs}${note}`).setStyle({ fill: '#66ff99' });
+    }
     this.revealFullTarget();
     this.time.delayedCall(650, () => this.advance());
 
@@ -2261,7 +2368,7 @@ class TrainScene extends Phaser.Scene {
   }
 
   showResults() {
-    [this.progressTxt, this.barBg, this.bar, this.promptSideTxt, this.promptTxt,
+    [this.progressTxt, this.barBg, this.bar, this.clockTxt, this.promptSideTxt, this.promptTxt,
      this.maskTxt, this.hintTxt, this.typedTxt, this.feedbackTxt].forEach(o => o && o.setVisible(false));
     if (this.vkKeys) this.vkKeys.forEach(k => k.destroy());
 
@@ -2269,7 +2376,10 @@ class TrainScene extends Phaser.Scene {
     this.add.text(W / 2, 130, `${this.score} / ${n}`, {
       fontSize: '54px', fill: this.cfg.color, fontFamily: '"Arial Black", Arial, sans-serif',
     }).setOrigin(0.5);
-    this.add.text(W / 2, 190, this.score === n ? 'All correct! 🎉' : 'Done', {
+    // TIMER OFF: total time and the average per word, to see the speed grow
+    const fmt = ms => { const t = Math.round(ms / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+    const timeInfo = this.timed ? '' : `   ·   ⏱ ${fmt(this.totalMs)} total, ${(this.totalMs / 1000 / Math.max(1, n)).toFixed(1)} s per word`;
+    this.add.text(W / 2, 190, (this.score === n ? 'All correct! 🎉' : 'Done') + timeInfo, {
       fontSize: '16px', fill: '#aabbcc', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5);
 
@@ -2311,7 +2421,7 @@ class TrainScene extends Phaser.Scene {
   // funnelled through pressLetter()/pressBackspace() like everywhere else.
   buildVirtualKeyboard(topY) {
     const GAP = 6, KEY_H = 46;
-    const KEY_W = Math.floor((W - 32 - 9 * GAP) / 10);
+    const KEY_W = Math.min(96, Math.floor((W + 2 * SIDE - 32 - 9 * GAP) / 10));   // wider keys on wide screens
     const rows = [
       [...'qwertyuiop'].map(ch => ({ label: ch.toUpperCase(), w: KEY_W, fn: () => this.pressLetter(ch) })),
       [...'asdfghjkl'].map(ch => ({ label: ch.toUpperCase(), w: KEY_W, fn: () => this.pressLetter(ch) })),
@@ -2428,17 +2538,17 @@ class GameScene extends Phaser.Scene {
     this.fallSpeed = cfg.speed;
 
     /* Background */
-    this.bgRect = this.add.rectangle(W / 2, H / 2, W, H, 0x1a1a2e).setDepth(0);
+    this.bgRect = this.add.rectangle(W / 2, H / 2, BG_W, H, 0x1a1a2e).setDepth(0);
     drawGrid(this, 0x1e2640, 0.4);
 
     /* Ground line */
-    this.add.rectangle(W / 2, this.groundY + 2, W, 4, 0xff3333).setDepth(1);
+    this.add.rectangle(W / 2, this.groundY + 2, BG_W, 4, 0xff3333).setDepth(1);
 
     /* ── HP bar (top-left) ── */
     this.hpGfx = this.add.graphics().setDepth(3);
-    this.HP    = { x: 14, y: 13, w: 180, h: 22 };
+    this.HP    = { x: 14 - SIDE, y: 13, w: 180, h: 22 };   // -SIDE: left edge of a wide screen
     this.drawHpBar();
-    this.hpLbl = this.add.text(14, this.HP.y + this.HP.h + 2, `HP: ${this.hp}`, {
+    this.hpLbl = this.add.text(14 - SIDE, this.HP.y + this.HP.h + 2, `HP: ${this.hp}`, {
       fontSize: '14px', fill: '#cc4444', fontFamily: 'Arial, sans-serif',
     }).setDepth(3);
 
@@ -2456,7 +2566,7 @@ class GameScene extends Phaser.Scene {
     this.refreshLevelDisplay();
 
     /* ── Score (top-right) ── */
-    this.scoreTxt = this.add.text(W - 14, 13, 'Score: 0', {
+    this.scoreTxt = this.add.text(W - 14 + SIDE, 13, 'Score: 0', {
       fontSize: '22px', fill: '#ffdd00',
       fontFamily: '"Arial Black", Arial, sans-serif',
       stroke: '#443300', strokeThickness: 3,
@@ -2464,9 +2574,9 @@ class GameScene extends Phaser.Scene {
 
     /* ── Menu button (top-right, below score) ── */
     this.menuConfirm = false;
-    const menuBtnBg = this.add.rectangle(W - 57, 46, 88, 22, 0x1c2a3a)
+    const menuBtnBg = this.add.rectangle(W - 57 + SIDE, 46, 88, 22, 0x1c2a3a)
       .setStrokeStyle(1, 0x334455).setInteractive({ useHandCursor: true }).setDepth(3);
-    this.menuBtnTxt = this.add.text(W - 57, 46, '⌂ MENU', {
+    this.menuBtnTxt = this.add.text(W - 57 + SIDE, 46, '⌂ MENU', {
       fontSize: '12px', fill: '#7788aa', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5).setDepth(3);
     menuBtnBg.on('pointerover', () => { menuBtnBg.setFillStyle(0x263444); if (!this.menuConfirm) this.menuBtnTxt.setStyle({ fill: '#aabbcc' }); });
@@ -2491,9 +2601,9 @@ class GameScene extends Phaser.Scene {
     });
 
     /* ── Pause button (top-right, left of menu button) ── */
-    const pauseBtnBg = this.add.rectangle(W - 155, 46, 80, 22, 0x1c2a3a)
+    const pauseBtnBg = this.add.rectangle(W - 155 + SIDE, 46, 80, 22, 0x1c2a3a)
       .setStrokeStyle(1, 0x334455).setInteractive({ useHandCursor: true }).setDepth(3);
-    this.pauseBtnTxt = this.add.text(W - 155, 46, '⏸', {
+    this.pauseBtnTxt = this.add.text(W - 155 + SIDE, 46, '⏸', {
       fontSize: '14px', fill: '#7788aa', fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5).setDepth(3);
     pauseBtnBg.on('pointerover', () => pauseBtnBg.setFillStyle(0x263444));
@@ -2505,8 +2615,8 @@ class GameScene extends Phaser.Scene {
 
     /* ── Input bar (bottom) + optional on-screen keyboard ── */
     const barTop = this.groundY + 36;
-    this.add.rectangle(W / 2, (barTop + H) / 2, W, H - barTop, 0x0d1020).setDepth(1);
-    this.add.rectangle(W / 2, barTop, W, 2, 0x1e2e50).setDepth(2);
+    this.add.rectangle(W / 2, (barTop + H) / 2, BG_W, H - barTop, 0x0d1020).setDepth(1);
+    this.add.rectangle(W / 2, barTop, BG_W, 2, 0x1e2e50).setDepth(2);
 
     const inputY = this.vkOn ? barTop + 20 : H - 27;
     this.inputTxt = this.add.text(W / 2, inputY, '', {
@@ -2529,7 +2639,7 @@ class GameScene extends Phaser.Scene {
   // logic only lives in one place.
   buildVirtualKeyboard(topY) {
     const GAP = 6, KEY_H = 46;
-    const KEY_W = Math.floor((W - 32 - 9 * GAP) / 10); // sized off the 10-key top row
+    const KEY_W = Math.min(96, Math.floor((W + 2 * SIDE - 32 - 9 * GAP) / 10)); // sized off the 10-key top row; wider on wide screens
 
     const rows = [
       [...'qwertyuiop'].map(ch => ({ label: ch.toUpperCase(), w: KEY_W, fn: () => this.pressLetter(ch) })),
@@ -2584,7 +2694,7 @@ class GameScene extends Phaser.Scene {
   }
 
   startCountdown(onComplete) {
-    const overlay = this.add.rectangle(W / 2, H / 2, W, H, 0x000000).setAlpha(0.5).setDepth(18);
+    const overlay = this.add.rectangle(W / 2, H / 2, BG_W, H, 0x000000).setAlpha(0.5).setDepth(18);
     const STEP   = 850;
     const labels = ['3', '2', '1', 'GO!'];
     const colors = ['#ff6644', '#ffcc00', '#88ff44', '#00ff88'];
@@ -2617,7 +2727,7 @@ class GameScene extends Phaser.Scene {
     this.gamePaused = true;
     this.pauseBtnTxt.setText('▶ RESUME').setStyle({ fill: '#aaffaa' });
     this.pauseElems.push(
-      this.add.rectangle(W / 2, H / 2, W, H, 0x000000).setAlpha(0.55).setDepth(15),
+      this.add.rectangle(W / 2, H / 2, BG_W, H, 0x000000).setAlpha(0.55).setDepth(15),
       this.add.text(W / 2, H / 2 - 20, 'PAUSED', {
         fontSize: '72px', fill: '#ffffff',
         fontFamily: '"Arial Black", Arial, sans-serif',
@@ -2665,12 +2775,12 @@ class GameScene extends Phaser.Scene {
     do { word = this.nextWord(); tries++; } while (active.has(word) && tries < 20);
 
     const obj = this.add.text(
-      Phaser.Math.Between(70, W - 70), SPAWN_Y, word, {
+      Phaser.Math.Between(70 - SIDE, W - 70 + SIDE), SPAWN_Y, word, {
         fontSize: '30px', fill: '#e0e8ff', fontFamily: 'monospace',
         stroke: '#000022', strokeThickness: 4,
       }
     ).setOrigin(0.5, 0).setDepth(4);
-    obj.x = Phaser.Math.Clamp(obj.x, obj.width / 2 + 8, W - obj.width / 2 - 8);
+    obj.x = Phaser.Math.Clamp(obj.x, obj.width / 2 + 8 - SIDE, W - obj.width / 2 - 8 + SIDE);
     this.words.push({ obj, word, missedLabel: capWords(word) });
   }
 
@@ -2689,7 +2799,7 @@ class GameScene extends Phaser.Scene {
 
     const answer = typedPart(pair.en);   // a "(note)" is never typed
     const IMG = 110;
-    const x = Phaser.Math.Between(100, W - 100);
+    const x = Phaser.Math.Between(100 - SIDE, W - 100 + SIDE);
     const container = this.add.container(x, SPAWN_Y).setDepth(4);
 
     const frame = this.add.rectangle(0, IMG / 2, IMG + 6, IMG + 6, 0x000000, 0)
@@ -2715,7 +2825,7 @@ class GameScene extends Phaser.Scene {
 
     container.add([...pic, frame, underTxt]);
     const maxHalf = Math.max(IMG / 2 + 3, underTxt.width / 2);
-    container.x = Phaser.Math.Clamp(container.x, maxHalf + 10, W - maxHalf - 10);
+    container.x = Phaser.Math.Clamp(container.x, maxHalf + 10 - SIDE, W - maxHalf - 10 + SIDE);
     // isTranslation reused here so the shared highlight/reset/damage logic
     // (which only knows about "container + underTxt" words) works unchanged.
     this.words.push({
@@ -2743,7 +2853,7 @@ class GameScene extends Phaser.Scene {
     const sides   = unitSideLabels(this.unit);
     const label   = enToSk ? `${sides.left} → ${sides.right}` : `${sides.right} → ${sides.left}`;
 
-    const x = Phaser.Math.Between(100, W - 100);
+    const x = Phaser.Math.Between(100 - SIDE, W - 100 + SIDE);
     const container = this.add.container(x, SPAWN_Y).setDepth(4);
 
     const lblTxt = this.add.text(0, 0, label, {
@@ -2778,7 +2888,7 @@ class GameScene extends Phaser.Scene {
     container.add(parts);
     // Clamp so the widest child never overflows the screen
     const maxHalf = Math.max(...parts.map(o => o.width)) / 2;
-    container.x = Phaser.Math.Clamp(container.x, maxHalf + 10, W - maxHalf - 10);
+    container.x = Phaser.Math.Clamp(container.x, maxHalf + 10 - SIDE, W - maxHalf - 10 + SIDE);
     this.words.push({
       obj: container, word: answer, pairEN: pair.en, underTxt, promptTxt, isTranslation: true,
       missedLabel: `${pairLabel(pair)} → ${pair.sk}`,
@@ -3037,7 +3147,7 @@ class GameOverScene extends Phaser.Scene {
     this._gone       = false;   // set on shutdown so late network callbacks don't touch a dead scene
     this.events.once('shutdown', () => { this._gone = true; });
 
-    this.add.rectangle(W / 2, H / 2, W, H, 0x0d0d1a);
+    this.add.rectangle(W / 2, H / 2, BG_W, H, 0x0d0d1a);
     drawGrid(this, 0x141428, 0.6);
 
     /* GAME OVER title */
@@ -3311,7 +3421,7 @@ class LeaderboardScene extends Phaser.Scene {
     this._gone = false;
     this.events.once('shutdown', () => { this._gone = true; });
 
-    this.add.rectangle(W / 2, H / 2, W, H, 0x0d0d1a);
+    this.add.rectangle(W / 2, H / 2, BG_W, H, 0x0d0d1a);
     drawGrid(this, 0x141428, 0.6);
 
     this.add.text(W / 2, 38, '🏆  LEADERBOARD', {
@@ -3557,7 +3667,7 @@ class HowToPlayScene extends ScrollScene {
   constructor() { super('HowToPlay'); }
 
   create() {
-    this.add.rectangle(W / 2, H / 2, W, H, 0x0d0d1a);
+    this.add.rectangle(W / 2, H / 2, BG_W, H, 0x0d0d1a);
     drawGrid(this, 0x141428, 0.4);
 
     this.add.text(W / 2, 26, '❓  HOW TO PLAY', {
@@ -3621,10 +3731,12 @@ class HowToPlayScene extends ScrollScene {
     left.line('Random words has no lessons — just pick a mode (Typing / Translate) and go.');
     left.line('The DIFFICULTY 0–9 slider at the bottom is shared everywhere: it changes fall speed in Falling words, and the time per word in Training.');
     left.line('In Training it\u2019s exact: level 9 = 2s per word, each level down = +2s (level 0 = 20s).', '#6a8a55');
+    left.line('Training can also be played without a time limit: switch \u23f1 TIMER to OFF (bottom bar, when Training is picked). Hints still appear, a wrong key brings the next hint sooner, and a word finished only after it was fully shown goes to the retry list.', '#6a8a55');
 
     left.section('CONTROLS');
     left.line('Backspace = delete the last letter   ·   Esc = clear / back');
     left.line('⏸ = pause (Falling words only)   ·   ⌨️ KEYBOARD = toggle the on-screen keyboard');
+    left.line('📱 On a phone: turn it sideways and tap FULL SCREEN (iPhone: Share → Add to Home Screen).', '#5a6a7a');
     left.line('Accents don\u2019t have to be exact — typing "casto" is accepted for "často".', '#5a6a7a');
     left.line('🌍 The leaderboard is shared online, and falls back to this device only if you\u2019re offline.', '#5a6a7a');
 
@@ -3715,7 +3827,7 @@ class ChangelogScene extends ScrollScene {
     this._gone = false;
     this.events.once('shutdown', () => { this._gone = true; });
 
-    this.add.rectangle(W / 2, H / 2, W, H, 0x0d0d1a);
+    this.add.rectangle(W / 2, H / 2, BG_W, H, 0x0d0d1a);
     drawGrid(this, 0x141428, 0.4);
     const title = this.add.text(W / 2, 26, '📜  CHANGELOG', {
       fontSize: '30px', fill: '#00ccff',
@@ -3873,11 +3985,71 @@ function startUpdateWatcher(game) {
   setInterval(() => applyUpdateIfSafe(game), 1500);
 }
 
+/* ── Touch devices, full screen, wide screens ── */
+function isTouchDevice() { return window.matchMedia('(pointer: coarse)').matches; }
+function isIOS() {
+  return /iPhone|iPad|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);   // iPad reporting as a Mac
+}
+function isStandalone() {   // opened from the home-screen icon
+  return window.matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+}
+function fullscreenSupported() {
+  const d = document.documentElement;
+  return !!(d.requestFullscreen || d.webkitRequestFullscreen);
+}
+function isFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+function toggleFullscreen() {
+  try {
+    if (isFullscreen()) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else {
+      const d = document.documentElement;
+      const r = (d.requestFullscreen || d.webkitRequestFullscreen).call(d);
+      if (r && r.catch) r.catch(() => {});
+    }
+  } catch (e) { /* not allowed here — the button simply does nothing */ }
+}
+
+// Canvas width that fills the screen: 800 on a computer or an upright phone,
+// wider (up to MAX_GW) on a touch screen that is wider than 4:3.
+function wantedWidth() {
+  if (!isTouchDevice()) return W;
+  const ratio = window.innerWidth / Math.max(1, window.innerHeight);
+  return Phaser.Math.Clamp(Math.round(H * ratio / 2) * 2, W, MAX_GW);
+}
+
+function setupWideScreen(game) {
+  /* A round of Falling words / Training is laid out once when it starts, so
+     the width never changes in the middle of one — turning the phone just
+     letterboxes it, and the new width is used from the next screen on. */
+  const LOCKED = ['Game', 'Train'];
+  const apply = () => {
+    const want = wantedWidth();
+    if (want === GW) return;
+    if (LOCKED.some(k => game.scene.isActive(k) || game.scene.isPaused(k))) return;
+    GW = want; SIDE = (GW - W) / 2;
+    game.scale.setGameSize(GW, H);
+  };
+  window.addEventListener('resize', apply);
+  window.addEventListener('orientationchange', apply);
+  setInterval(apply, 500);   // also picks up a rotation that happened during a locked round
+  // Keep every screen's 800-wide layout in the middle of the canvas.
+  game.events.on('prerender', () => {
+    for (const sc of game.scene.getScenes(true)) {
+      const cam = sc.cameras && sc.cameras.main;
+      if (cam && cam.scrollX !== -SIDE) cam.scrollX = -SIDE;
+    }
+  });
+}
+
 async function boot() {
   await loadWords();
+  GW = wantedWidth(); SIDE = (GW - W) / 2;
   const game = new Phaser.Game({
     type: Phaser.AUTO,
-    width: W, height: H,
+    width: GW, height: H,
     backgroundColor: '#1a1a2e',
     scene: [
       PreloadScene,
@@ -3887,6 +4059,7 @@ async function boot() {
     parent: document.body,
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   });
+  setupWideScreen(game);
   startUpdateWatcher(game);
 }
 
