@@ -33,3 +33,6 @@
 
 13.11.2026
 - Training: new ⏱ TIMER switch in the lesson table — play without a time limit. Hints still appear, and the time per word and the total time are shown.
+
+16.11.2026
+- English: added Unit 2 (3 parts).
