@@ -144,6 +144,94 @@ upset|rozrušený
 `,
   },
 
+  {
+    id:    'en-unit2-p1',
+    label: 'Unit 2 – Part 1',
+    topic: 'animals & habitats',
+    group: 'Unit 2',
+    words: `
+dolphin|delfín
+rhino|nosorožec
+blue whale|vorvaň
+snow leopard|snežný leopard
+giant panda|panda obrovská
+orangutan|orangutan
+sloth bear|medveď pyskatý
+habitat|prirodzené prostredie
+grasslands|pastviny
+ocean|oceán
+polar region|polárna oblasť
+desert|púšť
+wetlands|mokrade
+poaching|pytliačenie
+pollution|znečistenie
+illness|choroba
+nature reserve|prírodná rezervácia
+loss of habitat|strata prirodzeného prostredia
+`,
+  },
+
+  {
+    id:    'en-unit2-p2',
+    label: 'Unit 2 – Part 2',
+    topic: 'adjectives & animal parts',
+    group: 'Unit 2',
+    words: `
+surprised|prekvapený
+endangered|ohrozený
+vulnerable|zraniteľný
+annoying|otravný
+terrible|hrozný
+heavy|ťažký
+light|ľahký
+amazing|úžasný
+fierce|zúrivý
+bright|svetlý
+important|dôležitý
+common|bežný
+mane|hriva
+whiskers|fúzy
+trunk|chobot
+claws|pazúry
+fur|srsť
+feathers|perie
+beak|zobák
+tusks|slonie kly
+scales|šupiny
+antlers|parohy
+tentacles|chápadlá
+`,
+  },
+
+  {
+    id:    'en-unit2-p3',
+    label: 'Unit 2 – Part 3',
+    topic: 'verbs & nature',
+    group: 'Unit 2',
+    words: `
+to appear|zjaviť sa
+to pass|prejsť
+to hurt|zraniť (sa)
+to feed|kŕmiť (sa)
+to provide|zaobstarať
+to lay eggs|klásť vajíčka
+to steal|ukradnúť
+buoy|bója
+together|spolu
+because of (something)|kvôli (niečomu)
+species|živočíšny druh
+mammals|cicavce
+reptiles|plazy
+marine animals|morské živočíchy
+noise|hluk
+trail|cestička
+symbiosis|symbióza
+oxpecker|kľuvač červenozobý
+Egyptian Plover|krokodíliar žltobruchý
+dotted humming frog|krátkonožka škvrnitá
+`,
+  },
+
   // ── ŠABLÓNA: skopíruj tento blok, odkomentuj a vyplň ──────────────────────
   // {
   //   id:    'en-w1',
